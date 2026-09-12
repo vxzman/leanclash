@@ -2,25 +2,27 @@
    LeanClash — WinUI 3 Mica 材质分层
    ————————————————————————————————————————
    层级（自下而上）：
-     body::before  轻 bloom（极低饱和度，不要花壁纸）
-     body::after   feTurbulence 微噪点
-     body          --mica-base 带冷灰蓝倾向底色
-     .app          半透明 Mica 染色层（blur 40px）
-     .topnav       轻 Acrylic（blur 24px）
-     .card/.tile   半透明卡片，透出底色
+     body::before  极淡色温（模拟桌面壁纸采样，不要花纹）
+     body::after   微噪点
+     body          --mica-base
+     .app          窗口唯一一层 Mica（blur 壁纸）
+     .topnav       Layer on Mica，不再二次模糊
+     .card/.tile   半透明实色铺在云母上，不再 backdrop-filter
+     .toast        Acrylic（飞出层才用模糊）
    ============================================================ */
 
 :root {
   color-scheme: light;
 
   /* ── Mica 材质 ── */
-  --mica-base: #e4e9f0;                         /* 带冷灰蓝倾向底，不要纯 #f3f3f3 */
-  --mica-tint: rgba(243, 243, 243, 0.78);
-  --layer-fill: rgba(255, 255, 255, 0.55);
-  --acrylic-tint: rgba(252, 252, 252, 0.55);
-  --card-fill: rgba(255, 255, 255, 0.62);       /* 卡片半透明，透出底色 */
-  --card-fill-2: rgba(246, 246, 246, 0.55);
-  --surface-strong: #fff;
+  --mica-base: #e4e9f0;
+  --mica-tint: rgba(243, 243, 243, 0.55);
+  --layer-fill: rgba(255, 255, 255, 0.38);
+  --nav-fill: rgba(255, 255, 255, 0.22);
+  --card-fill: rgba(255, 255, 255, 0.46);
+  --card-fill-hover: rgba(255, 255, 255, 0.62);
+  --card-fill-2: rgba(246, 246, 246, 0.42);
+  --surface-strong: rgba(255, 255, 255, 0.82);
 
   /* ── 控件 ── */
   --control-fill: rgba(255, 255, 255, 0.65);
@@ -79,7 +81,7 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
   --content-w: 1180px;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --page-grain-opacity: 0.055;
+  --page-grain-opacity: 0.05;
 }
 
 /* ── 深色令牌 ── */
@@ -87,12 +89,13 @@
   :root {
     color-scheme: dark;
     --mica-base: #1a1d24;
-    --mica-tint: rgba(32, 32, 32, 0.78);
-    --layer-fill: rgba(48, 48, 48, 0.42);
-    --acrylic-tint: rgba(44, 44, 44, 0.50);
-    --card-fill: rgba(255, 255, 255, 0.06);
+    --mica-tint: rgba(32, 32, 32, 0.55);
+    --layer-fill: rgba(255, 255, 255, 0.04);
+    --nav-fill: rgba(255, 255, 255, 0.035);
+    --card-fill: rgba(255, 255, 255, 0.055);
+    --card-fill-hover: rgba(255, 255, 255, 0.09);
     --card-fill-2: rgba(255, 255, 255, 0.04);
-    --surface-strong: rgba(255, 255, 255, 0.06);
+    --surface-strong: rgba(44, 44, 44, 0.82);
     --control-fill: rgba(255, 255, 255, 0.06);
     --control-fill-hover: rgba(255, 255, 255, 0.09);
     --control-fill-pressed: rgba(255, 255, 255, 0.04);
@@ -162,7 +165,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 轻 bloom：色度极低，只让底色不「死平」 */
+/* 极淡色温：模拟 Mica 采样壁纸，只有冷暖，没有花纹 */
 body::before {
   content: '';
   position: fixed;
@@ -170,14 +173,15 @@ body::before {
   z-index: -2;
   pointer-events: none;
   background:
-    repeating-radial-gradient(ellipse at 18% 78%, transparent 0 26px, rgba(255, 255, 255, 0.08) 27px 28px, transparent 29px 58px),
-    repeating-radial-gradient(ellipse at 86% 18%, transparent 0 34px, rgba(0, 95, 184, 0.035) 35px 36px, transparent 37px 76px),
-    radial-gradient(42% 32% at 18% 78%, rgba(110, 70, 170, 0.10), transparent 70%),
-    radial-gradient(36% 30% at 82% 74%, rgba(0, 150, 170, 0.08), transparent 70%),
-    radial-gradient(54% 46% at 88% -4%, rgba(0, 120, 212, 0.13), transparent 72%),
-    radial-gradient(32% 28% at 52% 22%, rgba(255, 255, 255, 0.16), transparent 72%);
-  background-size: 520px 340px, 680px 460px, auto, auto, auto, auto;
-  background-position: 0 0, 100% 0, center, center, center, center;
+    radial-gradient(58% 48% at 88% -8%, rgba(0, 95, 184, 0.08), transparent 72%),
+    radial-gradient(46% 38% at 8% 108%, rgba(255, 255, 255, 0.42), transparent 70%);
+}
+@media (prefers-color-scheme: dark) {
+  body::before {
+    background:
+      radial-gradient(58% 48% at 90% -6%, rgba(96, 205, 255, 0.07), transparent 72%),
+      radial-gradient(42% 36% at 6% 108%, rgba(255, 255, 255, 0.035), transparent 70%);
+  }
 }
 
 /* 微噪点：增强材质感 */
@@ -212,12 +216,10 @@ body::after {
   border-radius: 12px;                    /* 窗口圆角略大于卡片 */
   box-shadow: var(--shadow-window);
 
-  background-color: transparent;
-  background-image:
-    linear-gradient(var(--layer-fill), var(--layer-fill)),
-    var(--mica-tint);
-  backdrop-filter: blur(40px) saturate(140%);
-  -webkit-backdrop-filter: blur(40px) saturate(140%);
+  background-color: var(--mica-tint);
+  background-image: linear-gradient(var(--layer-fill), var(--layer-fill));
+  backdrop-filter: blur(48px) saturate(118%);
+  -webkit-backdrop-filter: blur(48px) saturate(118%);
 }
 
 ::selection { background: rgba(0, 95, 184, 0.35); }
@@ -225,7 +227,7 @@ button, input, textarea { font: inherit; }
 button { color: inherit; }
 
 /* ============================================================
-   侧栏 — NavigationView / 轻 Acrylic
+   侧栏 — NavigationView，与窗口共用 Mica
    ============================================================ */
 .topnav {
   position: relative;          /* 不用 sticky 全屏那套 */
@@ -237,12 +239,9 @@ button { color: inherit; }
   flex-direction: column;
   gap: 0;
   padding: 8px;
-  background: transparent;
-  background-image: var(--acrylic-tint);
+  background: var(--nav-fill);
   border-right: 1px solid var(--divider);
   border-radius: 12px 0 0 12px;
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
   overflow: hidden;
 }
 .logo { display: flex; align-items: center; gap: 10px; min-height: 40px; margin-bottom: 4px; padding: 8px 12px 12px; }
@@ -313,38 +312,31 @@ button { color: inherit; }
 .page-head .sub, .page-head-row .sub { margin-top: 4px; color: var(--text-2); font-size: 13px; }
 
 /* ============================================================
-   卡片：半透明，透出底色，不用描边框住
+   卡片：半透明实色铺在窗口云母上（不再二次模糊）
    ============================================================ */
 .card, .tile, .file-pane, .editor-pane, .hero {
   position: relative;
   border: 1px solid var(--card-stroke);
   border-radius: var(--radius);
   background: var(--card-fill);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
   box-shadow: none;
   transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
 }
 .card:hover, .tile:hover, .file-pane:hover, .editor-pane:hover {
   border-color: var(--card-stroke-solid);
-  background: rgba(255, 255, 255, 0.82);
-}
-@media (prefers-color-scheme: dark) {
-  .card:hover, .tile:hover, .file-pane:hover, .editor-pane:hover {
-    background: rgba(255, 255, 255, 0.09);
-  }
+  background: var(--card-fill-hover);
 }
 
 /* ── 无 backdrop-filter 回退 ── */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .app { background: var(--mica-solid); backdrop-filter: none; }
-  .topnav { background: var(--acrylic-solid); backdrop-filter: none; }
-  .card, .tile, .file-pane, .editor-pane, .hero { background: var(--card-solid); backdrop-filter: none; }
+  .topnav { background: var(--acrylic-solid); }
+  .card, .tile, .file-pane, .editor-pane, .hero { background: var(--card-solid); }
   .toast { background: var(--surface-strong-solid); }
 }
 
 /* ── Hero ── */
-.hero { display: flex; align-items: center; gap: 10px; min-height: 52px; margin-bottom: 16px; padding: 12px 16px; border-radius: 6px; background: rgba(255, 255, 255, 0.5); }
+.hero { display: flex; align-items: center; gap: 10px; min-height: 52px; margin-bottom: 16px; padding: 12px 16px; }
 .hero::before { display: none; }
 .hero-icon { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: var(--radius-control); color: var(--accent); background: transparent; }
 .hero-info { flex: 1; min-width: 0; }
@@ -356,7 +348,7 @@ button { color: inherit; }
 .hero-actions { flex-shrink: 0; }
 
 /* ── 模式瓦片网格 ── */
-.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-content: start; }
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-content: start; }
 .tile { display: flex; flex-direction: column; gap: 8px; min-height: 0; padding: 16px; }
 .tile-head { display: flex; align-items: flex-start; gap: 12px; }
 .tile-icon { display: grid; place-items: center; width: 40px; height: 40px; flex-shrink: 0; border-radius: 6px; color: var(--accent); background: rgba(0, 0, 0, 0.04); }
@@ -463,9 +455,6 @@ textarea.code:focus { border-color: var(--accent); }
 .list.card {
   margin-bottom: 12px;
   overflow: hidden;
-  background: var(--card-fill);           /* 替换 --card-bg 实白 */
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
 }
 .list-head { padding: 14px 16px 6px; color: var(--text-3); font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: none; }
 .list-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; padding: 0 16px; border-bottom: 1px solid var(--divider); }
@@ -522,7 +511,7 @@ textarea.code:focus { border-color: var(--accent); }
     box-shadow: none;
     flex-direction: column;
   }
-  .topnav { position: sticky; top: 0; align-self: auto; flex: none; width: 100%; height: auto; padding: 8px 12px; border-radius: 0; border-right: none; border-bottom: 1px solid var(--divider); backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%); }
+  .topnav { position: sticky; top: 0; align-self: auto; flex: none; width: 100%; height: auto; padding: 8px 12px; border-radius: 0; border-right: none; border-bottom: 1px solid var(--divider); }
   .logo { min-height: 40px; padding: 0 4px 10px; }
   .seg { flex-direction: row; overflow-x: auto; padding-top: 0; gap: 2px; }
   .seg-item { min-height: 36px; padding: 0 12px; white-space: nowrap; font-size: 13px; }
