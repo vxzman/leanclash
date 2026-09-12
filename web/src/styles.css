@@ -1,5 +1,5 @@
 /* ============================================================
-   Mihomo Manager — WinUI 3 Mica 材质分层
+   LeanClash — WinUI 3 Mica 材质分层
    ————————————————————————————————————————
    层级（自下而上）：
      body::before  轻 bloom（极低饱和度，不要花壁纸）
@@ -139,13 +139,11 @@
 .c-tproxy { --mode-color: #ca5010; }
 .c-redir-tproxy { --mode-color: #c30052; }
 .c-socks { --mode-color: #10893e; }
-.c-server { --mode-color: #038387; }
 @media (prefers-color-scheme: dark) {
   .c-tun { --mode-color: #d0a9ff; }
   .c-tproxy { --mode-color: #f7894a; }
   .c-redir-tproxy { --mode-color: #ff8ac0; }
   .c-socks { --mode-color: #6ccb5f; }
-  .c-server { --mode-color: #59cfd8; }
 }
 
 /* ============================================================

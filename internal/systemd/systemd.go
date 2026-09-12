@@ -1,14 +1,17 @@
-// Package systemd 封装与 systemd 的 dbus 交互：单元启停、状态查询、
-// 状态变化订阅（实时监控的数据源）。
+//go:build !container
+
+// Package systemd implements the native service.Manager backend using
+// systemd's D-Bus API.
 package systemd
 
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/coreos/go-systemd/v22/dbus"
+
+	"leanclash/internal/service"
 )
 
 const opTimeout = 60 * time.Second
@@ -17,20 +20,12 @@ type Client struct {
 	conn *dbus.Conn
 }
 
-// Normalize 补全单元名后缀："mihomo@tun" → "mihomo@tun.service"。
-// 不带后缀的实例名会在部分 systemd 版本的 StartUnit 校验中被拒绝
-// （"Unit name %s is not valid."），systemctl 客户端也是先补后缀再调 dbus。
-// 另外 ListUnits 返回的快照 key 恒为完整名，消费方必须用归一化名匹配。
-func Normalize(unit string) string {
-	if unit == "" {
-		return unit
-	}
-	// 已带后缀（如 mihomo@tun.service / foo.socket）则原样返回
-	if i := strings.LastIndex(unit, "."); i >= 0 && i > strings.LastIndex(unit, "@") {
-		return unit
-	}
-	return unit + ".service"
-}
+var _ service.Manager = (*Client)(nil)
+var _ service.InstanceLister = (*Client)(nil)
+
+// Normalize is kept as a package-local compatibility helper for callers of
+// the systemd backend. New code should use service.Normalize.
+func Normalize(unit string) string { return service.Normalize(unit) }
 
 func New() (*Client, error) {
 	// 注意：不能传带超时的 ctx 并随后 cancel——godbus 的 WithContext(ctx)
@@ -104,9 +99,75 @@ func (c *Client) IsActive(ctx context.Context, unit string) bool {
 	return false
 }
 
-// SubscribeStates 订阅单元状态变化：每 interval 推送一次「发生变化的单元」
-// 快照（map[unit]*UnitStatus，被删除的单元值为 nil）。未变化的单元不在
-// 快照中，消费方需自行维护上一次状态做对比。
-func (c *Client) SubscribeStates(interval time.Duration) (<-chan map[string]*dbus.UnitStatus, <-chan error) {
-	return c.conn.SubscribeUnits(interval)
+// ListActiveInstances returns instance names of running mihomo@ units
+// (e.g. "tun" for mihomo@tun.service). Used by the homepage to reflect
+// instances started outside LeanClash.
+func (c *Client) ListActiveInstances(ctx context.Context) ([]string, error) {
+	units, err := c.conn.ListUnitsByPatternsContext(ctx,
+		[]string{"active", "activating", "reloading"},
+		[]string{"mihomo@*.service"},
+	)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(units))
+	seen := map[string]bool{}
+	for _, u := range units {
+		switch u.ActiveState {
+		case "active", "activating", "reloading":
+		default:
+			continue
+		}
+		inst, ok := service.MihomoInstance(u.Name)
+		if !ok || seen[inst] {
+			continue
+		}
+		seen[inst] = true
+		out = append(out, inst)
+	}
+	return out, nil
+}
+
+// SubscribeStates adapts systemd unit snapshots to the backend-neutral
+// service.UnitStatus type. Deleted units are represented by nil values.
+func (c *Client) SubscribeStates(interval time.Duration) (<-chan map[string]*service.UnitStatus, <-chan error) {
+	rawUpdates, rawErrors := c.conn.SubscribeUnits(interval)
+	updates := make(chan map[string]*service.UnitStatus)
+	errs := make(chan error)
+
+	go func() {
+		defer close(updates)
+		defer close(errs)
+		for {
+			select {
+			case snapshot, ok := <-rawUpdates:
+				if !ok {
+					return
+				}
+				converted := make(map[string]*service.UnitStatus, len(snapshot))
+				for name, status := range snapshot {
+					if status == nil {
+						converted[name] = nil
+						continue
+					}
+					converted[name] = &service.UnitStatus{
+						Name:        status.Name,
+						Description: status.Description,
+						LoadState:   status.LoadState,
+						ActiveState: status.ActiveState,
+						SubState:    status.SubState,
+					}
+				}
+				updates <- converted
+			case err, ok := <-rawErrors:
+				if !ok {
+					rawErrors = nil
+					continue
+				}
+				errs <- err
+			}
+		}
+	}()
+
+	return updates, errs
 }

@@ -1,5 +1,5 @@
 [Unit]
-Description=Mihomo Manager - web panel and mode lifecycle daemon for Mihomo
+Description=LeanClash - web panel and mode lifecycle daemon for Mihomo
 Documentation=https://github.com/MetaCubeX/mihomo
 After=network.target
 Wants=network.target
@@ -8,20 +8,20 @@ Wants=network.target
 Type=simple
 User=root
 Group=root
-ExecStart=/usr/local/bin/mihomo-manager serve
+ExecStart=/usr/local/bin/leanclash serve
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=mihomo-manager
+SyslogIdentifier=leanclash
 
 # 需要 CAP_NET_ADMIN（nft 表读写、ip rule）、CAP_NET_RAW；systemd dbus 无需额外能力
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_KILL
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/etc/mihomo /var/lib/mihomo /opt/mihomo-manager /run/mihomo-manager
-RuntimeDirectory=mihomo-manager
+ReadWritePaths=/etc/mihomo /var/lib/mihomo /opt/leanclash /run/leanclash
+RuntimeDirectory=leanclash
 RuntimeDirectoryMode=0750
 PrivateTmp=true
 LimitNOFILE=65536

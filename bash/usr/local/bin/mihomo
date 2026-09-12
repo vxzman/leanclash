@@ -1,3 +1,0 @@
-#!/bin/bash
-# 假 mihomo：配置测试直接通过（本机无 /var/lib/mihomo 权限）
-exit 0

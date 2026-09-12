@@ -1,0 +1,7 @@
+.git
+.claude
+.qwen
+*.tar.gz
+build/*.tar.gz
+web/node_modules/
+src/

@@ -6,8 +6,8 @@ import (
 	"os"
 	"runtime"
 
-	"mihomo-manager/internal/cli"
-	"mihomo-manager/internal/server"
+	"leanclash/internal/cli"
+	"leanclash/internal/server"
 )
 
 // 前端构建产物随二进制分发：部署 = 复制一个文件。
@@ -17,7 +17,7 @@ import (
 var webFS embed.FS
 
 // 构建信息：go build -ldflags 注入（见 README「本地构建」），
-// 未注入时显示默认值；部署后用 mihomo-manager info 核对是否为最新构建。
+// 未注入时显示默认值；部署后用 leanclash info 核对是否为最新构建。
 var (
 	version   = "dev"     // 语义版本，-X main.version=v1.0.0
 	commit    = "unknown" // git 提交，-X main.commit=<hash>
@@ -35,7 +35,7 @@ func main() {
 	case "serve":
 		// 守护进程（systemd 服务入口）
 		if err := server.RunDaemon(webFS); err != nil {
-			fmt.Fprintf(os.Stderr, "mihomo-manager serve 失败: %v\n", err)
+			fmt.Fprintf(os.Stderr, "leanclash serve 失败: %v\n", err)
 			os.Exit(1)
 		}
 	case "status":
@@ -56,7 +56,7 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		// 模式操作：mihomo-manager <mode> start|stop
+		// 模式操作：leanclash <mode> start|stop
 		if len(args) < 2 {
 			usage()
 			os.Exit(2)
@@ -69,23 +69,23 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `mihomo-manager — Mihomo 运行模式管理
+	fmt.Fprintf(os.Stderr, `leanclash — Mihomo 运行模式管理
 
 用法:
-  mihomo-manager serve                      启动守护进程（systemd 服务入口）
-  mihomo-manager <mode> start|stop          启停模式（tun|socks|tproxy|redir-tproxy|server）
-  mihomo-manager status [--json]            展示各模式/单元/规则状态
-  mihomo-manager config sync                同步各模式配置文件
-  mihomo-manager info                       查看版本/编译时间/目标平台
+  leanclash serve                      启动守护进程（systemd 服务入口）
+  leanclash <mode> start|stop          启停模式（tun|socks|tproxy|redir-tproxy）
+  leanclash status [--json]            展示各模式/单元/规则状态
+  leanclash config sync                同步各模式配置文件
+  leanclash info                       查看版本/编译时间/目标平台
 
 提示: 模式操作与 config sync 均经本机守护进程执行，请先确保
-      systemctl start mihomo-manager 已运行。
+      systemctl start leanclash 已运行。
 `)
 }
 
 // printBuildInfo 输出版本/编译信息，用于确认部署的二进制是否为最新构建。
 func printBuildInfo() {
-	fmt.Printf(`mihomo-manager 构建信息
+	fmt.Printf(`leanclash 构建信息
   版本:     %s
   提交:     %s
   编译时间: %s

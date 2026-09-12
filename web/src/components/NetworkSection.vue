@@ -47,7 +47,6 @@ defineEmits<{ (e: 'update:bypass', v: 'gid' | 'mark'): void }>()
       </div>
     </div>
     <div class="list-row">
-      <span class="row-label">排除 GID（mihomo 用户组）</span>
       <div class="row-text">
         <span class="row-label">排除 GID（mihomo 用户组）</span>
         <small class="row-hint">{{ bypass === 'gid' ? 'meta skgid · mihomo 用户组流量' : '当前方式未启用，保存时将清零' }}</small>
@@ -57,7 +56,6 @@ defineEmits<{ (e: 'update:bypass', v: 'gid' | 'mark'): void }>()
       </div>
     </div>
     <div class="list-row">
-      <span class="row-label">路由 mark</span>
       <div class="row-text">
         <span class="row-label">路由 mark</span>
         <small class="row-hint">{{ bypass === 'mark' ? 'meta mark · 已打标流量' : '当前方式未启用，保存时将清零' }}</small>

@@ -1,4 +1,4 @@
-// Package server 装配守护进程：manager.yaml 加载、systemd 连接、
+// Package server 装配守护进程：manager.yaml 加载、服务管理器连接、
 // lifecycle 编排、REST/SSE（TCP）与 CLI（Unix socket）双监听。
 package server
 
@@ -13,13 +13,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
-	"mihomo-manager/internal/api"
-	"mihomo-manager/internal/config"
-	"mihomo-manager/internal/lifecycle"
-	"mihomo-manager/internal/systemd"
+	"leanclash/internal/api"
+	"leanclash/internal/config"
+	"leanclash/internal/lifecycle"
 )
 
 func RunDaemon(webFS embed.FS) error {
@@ -28,7 +28,7 @@ func RunDaemon(webFS embed.FS) error {
 		return err
 	}
 
-	sys, err := systemd.New()
+	sys, err := newServiceManager(cfg)
 	if err != nil {
 		return err
 	}
@@ -47,7 +47,7 @@ func RunDaemon(webFS embed.FS) error {
 		}
 	}
 
-	// lifecycle 守护循环：dbus 同生共死 + tun0 事件 + 定期 reconcile。
+	// lifecycle 守护循环：服务状态同生共死 + tun0 事件 + 定期 reconcile。
 	go func() {
 		if err := lc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("[daemon] lifecycle 循环退出: %v", err)
@@ -73,7 +73,7 @@ func RunDaemon(webFS embed.FS) error {
 	if err != nil {
 		return fmt.Errorf("监听 %s 失败: %w", cfg.Daemon.WebAddr, err)
 	}
-	log.Printf("Mihomo Manager Web 面板监听: %s", cfg.Daemon.WebAddr)
+	log.Printf("LeanClash Web 面板监听: %s", cfg.Daemon.WebAddr)
 	webSrv := &http.Server{Handler: handler}
 	go func() {
 		if err := webSrv.Serve(webLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -118,6 +118,11 @@ func RunDaemon(webFS embed.FS) error {
 }
 
 func listenUnix(path string) (net.Listener, error) {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("创建 socket 目录失败: %w", err)
+		}
+	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}

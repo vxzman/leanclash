@@ -1,4 +1,4 @@
-// Package cli 实现 mihomo-manager 的 CLI 子命令：经 Unix socket 请求
+// Package cli 实现 leanclash 的 CLI 子命令：经 Unix socket 请求
 // 守护进程执行操作（模式启停、状态、配置同步）。守护进程不在线时报错
 // 并提示启动方式。
 package cli
@@ -11,7 +11,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"mihomo-manager/internal/config"
+	"leanclash/internal/config"
 )
 
 type request struct {
@@ -36,7 +36,7 @@ func socketPath() string {
 func dial() (net.Conn, error) {
 	conn, err := net.DialTimeout("unix", socketPath(), 3*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("无法连接守护进程（%s）: %w\n提示: 请先执行 systemctl start mihomo-manager", socketPath(), err)
+		return nil, fmt.Errorf("无法连接守护进程（%s）: %w\n提示: 请先执行 systemctl start leanclash", socketPath(), err)
 	}
 	return conn, nil
 }
@@ -58,7 +58,7 @@ func call(req request) (*response, error) {
 	return &resp, nil
 }
 
-// ModeOp 执行 mihomo-manager <mode> start|stop。
+// ModeOp 执行 leanclash <mode> start|stop。
 func ModeOp(mode, action string) error {
 	if action != "start" && action != "stop" {
 		return fmt.Errorf("无效操作: %s（仅支持 start/stop）", action)
@@ -147,7 +147,7 @@ func Status(args []string) error {
 
 // orderedModeNames 按固定展示顺序排列模式名（tun、透明代理在前）。
 func orderedModeNames(modes map[string]modeStatus) []string {
-	preferred := []string{"tun", "tproxy", "redir-tproxy", "socks", "server"}
+	preferred := config.ManagedModes
 	var names []string
 	seen := map[string]bool{}
 	for _, p := range preferred {

@@ -1,0 +1,64 @@
+#!/bin/sh
+set -eu
+
+usage() {
+    echo "Usage: systemctl {status|start|stop|restart} mihomo@<mode>.service" >&2
+    exit 2
+}
+
+status_mode() {
+    mode=$1
+    json=$(/usr/local/bin/leanclash status --json 2>/dev/null) || {
+        echo "● mihomo@$mode.service - manager unavailable"
+        return 3
+    }
+    details=$(printf '%s' "$json" | sed -n "s/.*\"$mode\":{\([^}]*\)}.*/\1/p")
+    case "$details" in
+        *'"active":true'*)
+            echo "● mihomo@$mode.service - active (running)"
+            return 0
+            ;;
+        *)
+            echo "● mihomo@$mode.service - inactive (dead)"
+            return 3
+            ;;
+    esac
+}
+
+[ "$#" -ge 2 ] || usage
+action=$1
+unit=${2%.service}
+
+case "$unit" in
+    leanclash)
+        case "$action" in
+            status)
+                echo "● leanclash.service - active (container main process)"
+                ;;
+            start|stop|restart)
+                echo "leanclash.service is the container main process"
+                ;;
+            *) usage ;;
+        esac
+        ;;
+    mihomo@*)
+        mode=${unit#mihomo@}
+        case "$action" in
+            status) status_mode "$mode" ;;
+            start|stop|restart)
+                if [ "$action" = restart ]; then
+                    /usr/local/bin/leanclash "$mode" stop || true
+                fi
+                command=$([ "$action" = restart ] && echo start || echo "$action")
+                if /usr/local/bin/leanclash "$mode" "$command" >/dev/null 2>&1; then
+                    echo "mihomo@$mode.service: $command successful"
+                else
+                    echo "mihomo@$mode.service: $command failed" >&2
+                    exit 1
+                fi
+                ;;
+            *) usage ;;
+        esac
+        ;;
+    *) usage ;;
+esac

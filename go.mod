@@ -1,4 +1,4 @@
-module mihomo-manager
+module leanclash
 
 go 1.22
 

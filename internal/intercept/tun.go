@@ -16,13 +16,13 @@ import (
 
 // CleanupTun 删除指向 tableIndex 的全部 ip rule、flush 路由表、删除 nft 表
 // 列表（表名含 family，如 "inet mihomo"）。全部幂等。
-func CleanupTun(tableIndex int, nftTables []string) error {
+func CleanupTun(tableIndex, ruleIndex int, nftTables []string) error {
 	table := strconv.Itoa(tableIndex)
 
-	// 删除指向该表的全部 ip rule：解析 `ip rule show` 输出提取 priority。
-	// mihomo 会按 rule_index 连续加多条规则，按表名匹配比固定 pref 列表更稳。
+	// mihomo 的 auto-route 规则包含 goto/suppress 规则，不一定 lookup
+	// tableIndex，因此除了按路由表匹配，还清理 rule-index 附近的已知规则。
 	for i := 0; i < 64; i++ {
-		prefs, err := rulePrioritiesForTable(table)
+		prefs, err := tunRulePriorities(table, ruleIndex)
 		if err != nil {
 			return err
 		}
@@ -45,32 +45,53 @@ func CleanupTun(tableIndex int, nftTables []string) error {
 	return nil
 }
 
-// rulePrioritiesForTable 返回 `ip rule show` 中 lookup <table> 规则的 priority 列表。
-func rulePrioritiesForTable(table string) ([]string, error) {
+// tunRulePriorities 返回 ip rule show 中与 table 或 ruleIndex 相关的优先级列表（单次解析）。
+func tunRulePriorities(table string, ruleIndex int) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "ip", "rule", "show").CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("ip rule show: %s", strings.TrimSpace(string(out)))
 	}
+
 	lookup := "lookup " + table
+	wantPriorities := map[string]struct{}{}
+	if ruleIndex > 0 {
+		for _, p := range []int{ruleIndex - 1, ruleIndex, ruleIndex + 1, ruleIndex + 2, ruleIndex + 10} {
+			if p > 0 {
+				wantPriorities[strconv.Itoa(p)] = struct{}{}
+			}
+		}
+	}
+
 	var prefs []string
+	seen := map[string]bool{}
 	for _, line := range strings.Split(string(out), "\n") {
-		if !strings.Contains(line, lookup) {
+		idx := strings.Index(line, ":")
+		if idx <= 0 {
 			continue
 		}
-		// 行格式: "9000:	from all lookup 2022"
-		idx := strings.Index(line, ":")
-		if idx > 0 {
-			prefs = append(prefs, strings.TrimSpace(line[:idx]))
+		pref := strings.TrimSpace(line[:idx])
+		if strings.Contains(line, lookup) {
+			if !seen[pref] {
+				prefs = append(prefs, pref)
+				seen[pref] = true
+			}
+			continue
+		}
+		if _, ok := wantPriorities[pref]; ok {
+			if !seen[pref] {
+				prefs = append(prefs, pref)
+				seen[pref] = true
+			}
 		}
 	}
 	return prefs, nil
 }
 
 // TunRulesLeftover 检测指定路由表是否残留规则（只读检测，供状态页/reconcile）。
-func TunRulesLeftover(tableIndex int) (bool, error) {
-	prefs, err := rulePrioritiesForTable(strconv.Itoa(tableIndex))
+func TunRulesLeftover(tableIndex, ruleIndex int) (bool, error) {
+	prefs, err := tunRulePriorities(strconv.Itoa(tableIndex), ruleIndex)
 	if err != nil {
 		return false, err
 	}

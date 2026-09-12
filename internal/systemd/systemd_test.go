@@ -1,6 +1,16 @@
+//go:build !container
+
 package systemd
 
-import "testing"
+import (
+	"testing"
+
+	"leanclash/internal/service"
+)
+
+func TestClientImplementsInstanceLister(t *testing.T) {
+	var _ service.InstanceLister = (*Client)(nil)
+}
 
 func TestNormalize(t *testing.T) {
 	cases := map[string]string{

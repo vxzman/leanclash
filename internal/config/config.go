@@ -10,9 +10,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Path 返回 manager.yaml 的位置：MIHOMO_MANAGER_CONFIG 优先（dev/测试用），
-// 默认 /opt/mihomo-manager/manager.yaml。
+// Path 返回 manager.yaml 的位置：LEANCLASH_CONFIG 优先，其次 MIHOMO_MANAGER_CONFIG，
+// 默认 /opt/leanclash/manager.yaml。
 func Path() string {
+	if v := os.Getenv("LEANCLASH_CONFIG"); v != "" {
+		return v
+	}
 	if v := os.Getenv("MIHOMO_MANAGER_CONFIG"); v != "" {
 		return v
 	}
@@ -91,6 +94,10 @@ func fillDefaults(cfg *ManagerConfig) {
 	}
 	if cfg.Daemon.ReconcileInterval == "" {
 		cfg.Daemon.ReconcileInterval = def.Daemon.ReconcileInterval
+	}
+	if cfg.Modes != nil {
+		// 旧版独立入站模式已移除，升级后不再作为可管理项出现。
+		delete(cfg.Modes, "server")
 	}
 	for name, m := range cfg.Modes {
 		if m == nil {

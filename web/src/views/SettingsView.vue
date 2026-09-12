@@ -53,12 +53,8 @@ async function save() {
       modes[name] = { env, preset: s.modes[name]?.preset ?? '' }
     }
 
-    // socks 入站由端口驱动；server 保留 preset 编辑
     if (s.modes.socks) {
       modes.socks = { env: { socks_port: s.modes.socks.env?.socks_port ?? 0 } }
-    }
-    if (s.modes.server) {
-      modes.server = { preset: s.modes.server.preset ?? '' }
     }
 
     await saveSettings(update)
@@ -143,9 +139,9 @@ async function save() {
       :env="settings.modes['redir-tproxy']!.env!"
     />
 
-    <!-- ─── SOCKS / SERVER ─── -->
+    <!-- ─── SOCKS ─── -->
     <section class="list card">
-      <div class="list-head">SOCKS / SERVER · 入站</div>
+      <div class="list-head">SOCKS · 入站</div>
       <div class="list-row">
         <div class="row-text">
           <span class="row-label">SOCKS 入站监听端口</span>
@@ -155,15 +151,6 @@ async function save() {
           <input v-model.number="settings.modes.socks!.env!.socks_port" type="number" class="input input-num" />
         </div>
       </div>
-      <details class="list-details">
-        <summary>
-          <span>SERVER 独立入站（默认 mixed 20261）</span>
-          <Icon name="chevron-down" :size="15" class="chev" />
-        </summary>
-        <div class="details-body">
-          <textarea v-model="settings.modes.server!.preset" class="code" style="min-height: 160px"></textarea>
-        </div>
-      </details>
     </section>
 
     <div v-if="message" class="alert" :class="message.ok ? 'ok' : 'err'">

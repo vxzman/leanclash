@@ -90,7 +90,8 @@ const nav: { key: View; label: string; icon: string }[] = [
 const activeLabel = () => {
   const s = status.value
   if (!s || !s.active_mode) return '未运行'
-  return s.modes[s.active_mode]?.label ?? s.active_mode
+  const label = s.modes[s.active_mode]?.label ?? s.active_mode
+  return `正在运行 ${label}`
 }
 </script>
 
@@ -99,10 +100,10 @@ const activeLabel = () => {
     <header class="topnav">
       <div class="logo">
         <div class="logo-mark">
-          <img src="/logo.svg" alt="Mihomo Manager" class="logo-img" />
+          <img src="/logo.svg" alt="LeanClash" class="logo-img" />
         </div>
         <div class="logo-text">
-          <b>Mihomo Manager</b>
+          <b>LeanClash</b>
         </div>
       </div>
 

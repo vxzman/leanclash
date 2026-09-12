@@ -1,7 +1,7 @@
 // Package lifecycle 是规则生命周期的编排者，守护进程的唯一写入口：
 //
 //   - StartMode / StopMode：模式互斥切换、启动后延迟套规则、停止后清理
-//   - watchUnits：dbus 信号联动 —— mihomo@ 实例死亡即清规则（同生共死）
+//   - watchUnits：服务状态联动 —— mihomo@ 实例死亡即清规则（同生共死）
 //   - watchTun：tun0 消失后清理残留 ip rule / nft 表
 //   - reconcile：定期对比期望状态与实际状态，兜底自愈（守护崩溃/手工干预）
 //
@@ -13,26 +13,44 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
-	"mihomo-manager/internal/config"
-	"mihomo-manager/internal/intercept"
-	"mihomo-manager/internal/netlink"
-	"mihomo-manager/internal/systemd"
+	"leanclash/internal/config"
+	"leanclash/internal/intercept"
+	"leanclash/internal/netlink"
+	"leanclash/internal/service"
 )
 
 type Manager struct {
 	cfg *config.ManagerConfig
-	sys *systemd.Client
+	sys service.Manager
 
 	mu     sync.Mutex // 串行化模式操作与规则写入
 	recent map[string]time.Time
 }
 
-func New(cfg *config.ManagerConfig, sys *systemd.Client) *Manager {
+// ReapplyModeRules rebuilds live transparent-proxy rules after settings change.
+func (m *Manager) ReapplyModeRules(ctx context.Context, mode string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	md := m.cfg.Modes[mode]
+	if md == nil || !m.sys.IsActive(ctx, md.Unit) {
+		return nil
+	}
+	ic, ok := m.interceptConfig(mode)
+	if !ok {
+		return nil
+	}
+	m.removeRules(mode, ic)
+	return m.applyRules(mode, ic)
+}
+
+func New(cfg *config.ManagerConfig, sys service.Manager) *Manager {
 	return &Manager{cfg: cfg, sys: sys, recent: map[string]time.Time{}}
 }
 
@@ -106,7 +124,13 @@ func (m *Manager) StartMode(ctx context.Context, mode string) error {
 func (m *Manager) StopMode(ctx context.Context, mode string) error {
 	md := m.Mode(mode)
 	if md == nil {
-		return fmt.Errorf("未知模式: %s", mode)
+		unit := "mihomo@" + mode
+		if !m.sys.IsActive(ctx, unit) && !m.discoveredActive(ctx, mode) {
+			return fmt.Errorf("未知模式: %s", mode)
+		}
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return m.sys.Stop(ctx, unit)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -120,7 +144,9 @@ func (m *Manager) stopModeLocked(ctx context.Context, mode string) error {
 		return err
 	}
 	delete(m.recent, mode)
-	if ic, ok := m.interceptConfig(mode); ok {
+	if mode == "tun" {
+		m.cleanupTun()
+	} else if ic, ok := m.interceptConfig(mode); ok {
 		m.removeRules(mode, ic)
 	}
 	return nil
@@ -191,7 +217,7 @@ func (m *Manager) cleanupTun() {
 	if md.Cleanup != nil {
 		tables = md.Cleanup.NftTables
 	}
-	if err := intercept.CleanupTun(md.Routing.TableIndex, tables); err != nil {
+	if err := intercept.CleanupTun(md.Routing.TableIndex, md.Routing.RuleIndex, tables); err != nil {
 		log.Printf("[lifecycle] tun 清理失败: %v", err)
 	}
 }
@@ -242,7 +268,7 @@ func (m *Manager) Run(ctx context.Context) error {
 	prevActive := map[string]bool{}
 	unitNames := map[string]string{} // mode → normalized unit
 	for _, md := range m.cfg.Modes {
-		full := systemd.Normalize(md.Unit)
+		full := service.Normalize(md.Unit)
 		unitNames[md.Unit] = full
 		prevActive[full] = m.sys.IsActive(ctx, md.Unit)
 	}
@@ -255,7 +281,7 @@ func (m *Manager) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case err := <-errCh:
-			log.Printf("[lifecycle] dbus 订阅错误: %v", err)
+			log.Printf("[lifecycle] 服务状态订阅错误: %v", err)
 		case snapshot := <-updates:
 			for mode, md := range m.cfg.Modes {
 				full := unitNames[md.Unit]
@@ -287,7 +313,9 @@ func (m *Manager) Run(ctx context.Context) error {
 func (m *Manager) onUnitDown(mode string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if ic, ok := m.interceptConfig(mode); ok {
+	if mode == "tun" {
+		m.cleanupTun()
+	} else if ic, ok := m.interceptConfig(mode); ok {
 		m.removeRules(mode, ic)
 	}
 }
@@ -343,7 +371,7 @@ func (m *Manager) reconcileOnce(ctx context.Context) {
 			if md == nil || md.Routing == nil {
 				continue
 			}
-			leftover, err := intercept.TunRulesLeftover(md.Routing.TableIndex)
+			leftover, err := intercept.TunRulesLeftover(md.Routing.TableIndex, md.Routing.RuleIndex)
 			if err != nil {
 				continue
 			}
@@ -372,21 +400,39 @@ type Status struct {
 
 func (m *Manager) Status(ctx context.Context) *Status {
 	st := &Status{Modes: map[string]ModeStatus{}}
+	discovered := map[string]bool{}
+	for _, inst := range m.listDiscovered(ctx) {
+		discovered[inst] = true
+	}
+
 	for name, md := range m.cfg.Modes {
 		state := m.sys.ActiveState(ctx, md.Unit)
+		active := state == "active" || state == "activating" || discovered[name]
+		if active && state != "active" && state != "activating" && state != "reloading" {
+			state = "active"
+		}
 		ms := ModeStatus{
 			Label:     md.Label,
 			Unit:      md.Unit,
 			UnitState: state,
 			Rules:     "na",
-			Active:    state == "active" || state == "activating",
+			Active:    active,
 		}
 		switch name {
 		case "tproxy", "redir-tproxy":
-			ms.Rules = "missing"
+			ms.Rules = "clean"
 			if ic, ok := m.interceptConfig(name); ok {
-				if applied, err := ic.RulesApplied(); err == nil && applied {
-					ms.Rules = "present"
+				if applied, err := ic.RulesApplied(); err == nil {
+					switch {
+					case applied && ms.Active:
+						ms.Rules = "present"
+					case applied && !ms.Active:
+						ms.Rules = "leftover"
+					case !applied && ms.Active:
+						ms.Rules = "missing"
+					default:
+						ms.Rules = "clean"
+					}
 				}
 			}
 		case "tun":
@@ -394,7 +440,7 @@ func (m *Manager) Status(ctx context.Context) *Status {
 			// 只有「单元已停但规则仍在」才算残留。
 			ms.Rules = "clean"
 			if md.Routing != nil {
-				leftover, err := intercept.TunRulesLeftover(md.Routing.TableIndex)
+				leftover, err := intercept.TunRulesLeftover(md.Routing.TableIndex, md.Routing.RuleIndex)
 				if err == nil {
 					switch {
 					case leftover && ms.Active:
@@ -408,9 +454,60 @@ func (m *Manager) Status(ctx context.Context) *Status {
 			}
 		}
 		st.Modes[name] = ms
-		if ms.Active && st.ActiveMode == "" {
-			st.ActiveMode = name
+	}
+	for inst := range discovered {
+		if _, exists := st.Modes[inst]; exists {
+			continue
+		}
+		st.Modes[inst] = ModeStatus{
+			Label:     strings.ToUpper(inst),
+			Unit:      "mihomo@" + inst,
+			UnitState: "active",
+			Rules:     "na",
+			Active:    true,
 		}
 	}
+	st.ActiveMode = pickActiveMode(st)
 	return st
+}
+
+func (m *Manager) listDiscovered(ctx context.Context) []string {
+	lister, ok := m.sys.(service.InstanceLister)
+	if !ok {
+		return nil
+	}
+	instances, err := lister.ListActiveInstances(ctx)
+	if err != nil {
+		log.Printf("[lifecycle] 列举 mihomo@ 实例失败: %v", err)
+		return nil
+	}
+	return instances
+}
+
+func (m *Manager) discoveredActive(ctx context.Context, mode string) bool {
+	for _, inst := range m.listDiscovered(ctx) {
+		if inst == mode {
+			return true
+		}
+	}
+	return false
+}
+
+func pickActiveMode(st *Status) string {
+	for _, name := range config.ManagedModes {
+		if ms, ok := st.Modes[name]; ok && ms.Active {
+			return name
+		}
+	}
+	var extras []string
+	for name, ms := range st.Modes {
+		if ms.Active {
+			extras = append(extras, name)
+		}
+	}
+	sort.Strings(extras)
+	if len(extras) == 0 {
+		return ""
+	}
+	return extras[0]
 }

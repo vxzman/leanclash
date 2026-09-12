@@ -5,7 +5,7 @@ dirs:
 
 daemon:
   web_addr: "127.0.0.1:8081"
-  cli_socket: dev/mihomo-manager.sock
+  cli_socket: dev/leanclash.sock
   apply_delay_ms: 1000
   reconcile_interval: 5s
 
@@ -83,19 +83,5 @@ modes:
     label: SOCKS
     unit: mihomo@socks
     config: config_socks.yaml
-    preset: |
-      - name: mixed-in
-        type: mixed
-        port: 20260
-        listen: 0.0.0.0
-        udp: true
-  server:
-    label: SERVER
-    unit: mihomo@server
-    config: config_server.yaml
-    preset: |
-      - name: server-in
-        type: mixed
-        port: 20261
-        listen: 0.0.0.0
-        udp: true
+    env:
+      socks_port: 20260

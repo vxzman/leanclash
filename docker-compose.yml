@@ -1,0 +1,22 @@
+services:
+  leanclash:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: localhost/leanclash:latest
+    container_name: leanclash
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    volumes:
+      - leanclash-config:/etc/mihomo
+      - leanclash-data:/var/lib/mihomo
+      - leanclash-manager:/opt/leanclash
+
+volumes:
+  leanclash-config:
+    driver: local
+  leanclash-data:
+    driver: local
+  leanclash-manager:
+    driver: local

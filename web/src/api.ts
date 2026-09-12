@@ -88,7 +88,7 @@ export async function saveSettings(update: Record<string, unknown>) {
 // subscribeStatus 建立 SSE 连接；返回取消函数。
 // onConnect 在连接建立（true）/断开（false）时回调，用于驱动「守护进程不可达」提示。
 export function subscribeStatus(onStatus: (s: Status) => void, onConnect?: (ok: boolean) => void): () => void {
-  const es = new EventSource('/events')
+  const es = new EventSource('/api/events')
   es.onopen = () => onConnect?.(true)
   es.onmessage = (ev) => {
     try {

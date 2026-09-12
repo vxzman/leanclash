@@ -1,6 +1,6 @@
 package config
 
-// ManagerConfig 是 /opt/mihomo-manager/manager.yaml 的类型化视图：
+// ManagerConfig 是 /opt/leanclash/manager.yaml 的类型化视图：
 // 所有 ip rule 数字、env 变量、模式定义与预定义入站配置的单一事实源。
 type ManagerConfig struct {
 	Dirs   Dirs             `yaml:"dirs" json:"dirs"`
@@ -58,7 +58,7 @@ type Env struct {
 // ─── 默认配置 ────────────────────────────────────────────────
 
 const (
-	DefaultConfigPath = "/opt/mihomo-manager/manager.yaml"
+	DefaultConfigPath = "/opt/leanclash/manager.yaml"
 
 	// 与旧面板/脚本保持一致的默认值，迁移时被旧 .conf 覆盖。
 	defaultTproxyPort   = 22016
@@ -109,12 +109,8 @@ const redirTproxyPreset = `  - name: tproxy-in
     listen: 0.0.0.0
 `
 
-const serverPreset = `  - name: server-in
-    type: mixed
-    port: 20261
-    listen: 0.0.0.0
-    udp: true
-`
+// ManagedModes 是面板维护的四种运行模式，展示顺序固定。
+var ManagedModes = []string{"tun", "tproxy", "redir-tproxy", "socks"}
 
 // Default builds the built-in manager config, used for first-run installs and
 // as the base for migration from the old .conf layout.
@@ -128,7 +124,7 @@ func Default() *ManagerConfig {
 			// 面板无鉴权：默认仅监听 IPv4（0.0.0.0），不暴露 IPv6。
 			// 需要 IPv6 时显式设置：[::]:8081（仅 IPv6）或 :8081（双栈）。
 			WebAddr:           "0.0.0.0:8081",
-			CliSocket:         "/run/mihomo-manager/mihomo-manager.sock",
+			CliSocket:         "/run/leanclash/leanclash.sock",
 			ApplyDelayMs:      1000,
 			ReconcileInterval: "5s",
 		},
@@ -182,12 +178,6 @@ func Default() *ManagerConfig {
 				Env: &Env{
 					SocksPort: defaultSocksPort,
 				},
-			},
-			"server": {
-				Label:  "SERVER",
-				Unit:   "mihomo@server",
-				Config: "config_server.yaml",
-				Preset: serverPreset,
 			},
 		},
 	}

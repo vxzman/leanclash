@@ -16,7 +16,9 @@ const fileName = ref('config_general.yaml')
 onMounted(async () => {
   try {
     const settings = await fetchSettings()
-    modes.value = Object.keys(settings.modes)
+    const order = ['tun', 'tproxy', 'redir-tproxy', 'socks']
+    const names = Object.keys(settings.modes)
+    modes.value = [...order.filter((n) => names.includes(n)), ...names.filter((n) => !order.includes(n))]
   } catch (e) {
     message.value = { ok: false, text: (e as Error).message }
   }

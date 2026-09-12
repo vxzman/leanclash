@@ -12,14 +12,13 @@ const props = defineProps<{
 
 defineEmits<{ (e: 'action', mode: string, action: 'start' | 'stop'): void; (e: 'refresh'): void }>()
 
-const modeOrder = ['tun', 'tproxy', 'redir-tproxy', 'socks', 'server']
+const modeOrder = ['tun', 'tproxy', 'redir-tproxy', 'socks']
 
 const modeIcons: Record<string, string> = {
   tun: 'activity',
   tproxy: 'shuffle',
   'redir-tproxy': 'git-merge',
   socks: 'zap',
-  server: 'server',
 }
 
 const entries = computed(() => {
@@ -29,10 +28,19 @@ const entries = computed(() => {
     .map((n, i) => ({ name: n, index: i, icon: modeIcons[n] ?? 'zap', ...props.status!.modes[n] }))
 })
 
-// Phase 3.1: hero 只展示活跃模式的状态信息（紧凑顶条）；tiles 展示全部模式
-const active = computed(() => entries.value.find((m) => m.active) ?? null)
-// 所有模式都进入网格，活跃模式用 c-{name} class 区分
 const tiles = computed(() => entries.value)
+
+// 首页 hero 以 active_mode 为准：systemd 探测到的 mihomo@i 也会显示为「正在运行 i 模式」
+const active = computed(() => {
+  const st = props.status
+  if (!st?.active_mode) return null
+  const name = st.active_mode
+  const found = entries.value.find((m) => m.name === name)
+  if (found) return found
+  const ms = st.modes[name]
+  if (!ms?.active) return null
+  return { name, index: -1, icon: modeIcons[name] ?? 'zap', ...ms }
+})
 
 const rulesText: Record<string, string> = {
   present: '规则就位',
@@ -43,7 +51,7 @@ const rulesText: Record<string, string> = {
 }
 
 function rulesClass(m: ModeStatus): string {
-  if (m.rules === 'present' || m.rules === 'clean') return 'active'
+  if (m.rules === 'present') return 'active'
   if (m.rules === 'missing' || m.rules === 'leftover') return 'partial'
   return ''
 }
@@ -76,7 +84,7 @@ function unitClass(s: string): string {
       <div class="hero-icon"><Icon name="alert-triangle" :size="24" /></div>
       <div class="hero-info">
         <div class="hero-title"><b>守护进程不可达</b></div>
-        <div class="hero-unit">无法连接后端服务，请检查 mihomo-manager 守护进程是否运行</div>
+        <div class="hero-unit">无法连接后端服务，请检查 leanclash 守护进程是否运行</div>
       </div>
       <div class="hero-actions">
         <button class="btn primary" @click="$emit('refresh')">
@@ -100,8 +108,8 @@ function unitClass(s: string): string {
       <div class="hero-icon"><Icon :name="active.icon" :size="24" /></div>
       <div class="hero-info">
         <div class="hero-title">
-          <b>{{ active.label }}</b>
-          <small>{{ active.name }}</small>
+          <b>正在运行 {{ active.label }} 模式</b>
+          <small>{{ active.unit || active.name }}</small>
         </div>
         <div class="hero-badges">
           <span class="badge" :class="unitClass(active.unit_state)">
@@ -148,10 +156,13 @@ function unitClass(s: string): string {
         </div>
 
         <div class="tile-meta">
-          <span v-if="m.unit_state !== 'inactive'" class="badge" :class="unitClass(m.unit_state)">
+          <span class="badge" :class="unitClass(m.unit_state)">
             {{ unitText[m.unit_state] ?? m.unit_state }}
           </span>
-          <span class="badge" :class="rulesClass(m)">
+          <span v-if="m.active" class="badge" :class="rulesClass(m)">
+            {{ rulesText[m.rules] ?? m.rules }}
+          </span>
+          <span v-else-if="m.rules === 'leftover'" class="badge partial">
             {{ rulesText[m.rules] ?? m.rules }}
           </span>
         </div>

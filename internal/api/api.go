@@ -10,9 +10,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
-	"mihomo-manager/internal/config"
-	"mihomo-manager/internal/lifecycle"
+	"leanclash/internal/config"
+	"leanclash/internal/lifecycle"
 )
 
 type API struct {
@@ -32,6 +33,7 @@ func New(cfg *config.ManagerConfig, lc *lifecycle.Manager, webFS embed.FS) (http
 	mux.HandleFunc("POST /api/modes/{mode}/start", a.handleModeStart)
 	mux.HandleFunc("POST /api/modes/{mode}/stop", a.handleModeStop)
 	mux.HandleFunc("GET /api/events", a.sse.ServeHTTP)
+	mux.HandleFunc("GET /events", a.sse.ServeHTTP)
 
 	// ─── 配置 ───
 	mux.HandleFunc("POST /api/config/sync", a.handleConfigSync)
@@ -103,11 +105,11 @@ func (a *API) handleModeStart(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleModeStop(w http.ResponseWriter, r *http.Request) {
 	mode := r.PathValue("mode")
-	if !a.validMode(mode) {
-		writeErr(w, http.StatusNotFound, fmt.Errorf("未知模式: %s", mode))
-		return
-	}
 	if err := a.lc.StopMode(r.Context(), mode); err != nil {
+		if strings.Contains(err.Error(), "未知模式") {
+			writeErr(w, http.StatusNotFound, err)
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -195,6 +197,7 @@ func (a *API) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	syncNeeded := false
+	reapplyModes := map[string]bool{}
 	for name, up := range body.Modes {
 		md, ok := a.cfg.Modes[name]
 		if !ok || up == nil {
@@ -202,6 +205,10 @@ func (a *API) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if up.Env != nil {
 			md.Env = up.Env
+			if name == "tproxy" || name == "redir-tproxy" {
+				reapplyModes[name] = true
+				syncNeeded = true
+			}
 			if name == "socks" {
 				// socks 入站由 env.socks_port 生成，端口变化需要重新生成配置
 				syncNeeded = true
@@ -235,6 +242,14 @@ func (a *API) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, http.StatusInternalServerError, err)
 				return
 			}
+		}
+	}
+
+	// 运行中的透明代理模式若参数发生变更，重新套用网络规则。
+	for mode := range reapplyModes {
+		if err := a.lc.ReapplyModeRules(r.Context(), mode); err != nil {
+			writeErr(w, http.StatusInternalServerError, fmt.Errorf("应用模式 %s 网络规则失败: %w", mode, err))
+			return
 		}
 	}
 	a.publishStatus()

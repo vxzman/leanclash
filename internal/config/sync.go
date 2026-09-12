@@ -147,6 +147,16 @@ func modeListeners(m *Mode, name string) ([]map[string]interface{}, error) {
 	if err := yaml.Unmarshal([]byte("listeners:\n"+m.Preset), &doc); err != nil {
 		return nil, fmt.Errorf("解析预定义配置失败: %w", err)
 	}
+	if m.Env != nil {
+		for _, l := range doc.Listeners {
+			t, _ := l["type"].(string)
+			if t == "tproxy" && m.Env.TproxyPort > 0 {
+				l["port"] = m.Env.TproxyPort
+			} else if t == "redir" && m.Env.RedirectPort > 0 {
+				l["port"] = m.Env.RedirectPort
+			}
+		}
+	}
 	return doc.Listeners, nil
 }
 
@@ -205,7 +215,7 @@ func testMihomoConfig(c *ManagerConfig, content string) error {
 		return nil
 	}
 
-	tmpDir, err := os.MkdirTemp("", "mihomo-manager-test-*")
+	tmpDir, err := os.MkdirTemp("", "leanclash-test-*")
 	if err != nil {
 		return err
 	}
