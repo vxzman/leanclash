@@ -1,6 +1,9 @@
 # ── 编译产物 ──────────────────────────────────────────────
 /build/
 /leanclash
+*.tar.gz
+deploy/usr/local/bin/*
+!deploy/usr/local/bin/.gitkeep
 
 # ── 前端 ──────────────────────────────────────────────────
 # 依赖与构建产物：clone 后执行 npm install && npm run build 生成
@@ -15,8 +18,10 @@ web/dist/*
 .claude/
 # 内部方案文档（不发布）
 PLAN.md
-# 运行时 Unix socket（dev/manager.yaml 的 cli_socket）
+# 运行时 Unix socket
 *.sock
+agy.txt
+grok.txt
 
 # ── Go ────────────────────────────────────────────────────
 *.test

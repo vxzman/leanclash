@@ -1,134 +1,216 @@
 # LeanClash
 
-面向 **Linux 服务器裸跑 mihomo 内核**的 Web 面板：**单一 Go 二进制**（守护进程 + CLI），Vue 3 前端内嵌。通过面板一键切换 tun / socks / tproxy / redir-tproxy 四种透明代理模式，nft/ip 规则由守护进程编排并与 `mihomo@` 实例同生共死。
+<p align="center">
+  <b>专为 Linux 服务器设计的 Mihomo 代理内核透明代理模式编排器与 Web 控制台</b>
+</p>
 
-[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](go.mod)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="#-本项目特色裸核代理透明编排">项目特色</a> •
+  <a href="#-前端设计美学winui-3--mica-材质">设计美学</a> •
+  <a href="#-从源码构建测试预览与编译">构建与预览</a> •
+  <a href="#-普通二进制部署宿主机原生环境">二进制部署</a> •
+  <a href="#-容器化部署docker--compose--kata">容器部署</a> •
+  <a href="#-安全与反向代理">反代与安全</a>
+</p>
 
-> A single-binary mode manager for [mihomo](https://github.com/MetaCubeX/mihomo): manages tun / tproxy / redir-tproxy / socks modes, orchestrates nftables & policy-routing rules that live and die with each `mihomo@` instance, with an embedded Vue 3 web panel.
+---
 
-## 适用场景
+## 🌟 本项目特色：裸核代理透明编排
 
-- 服务器上已装 mihomo 内核（`/usr/local/bin/mihomo`），不想逐个手写 systemd 单元与 nftables/策略路由规则
-- 需要在 TUN 虚拟网卡 / TPROXY / REDIR-TPROXY / SOCKS 之间频繁切换
-- 想要一个轻量 Web 面板 + CLI 管理，而不引入整套代理客户端
+在 Linux 服务器、软路由或云主机上直接运行 `mihomo` 等纯代理内核（无桌面客户端、无原生透明代理编排面板）时，传统运维往往面临三大痛点：
+1. **策略路由与防火墙规则繁琐易错**：手动编写复杂的 `nftables` 表、`ip rule` 优先级及专用路由表，稍有不慎即造成网络死锁甚至整机失联；
+2. **进程与规则生命周期脱节**：内核意外退出或停止后规则仍然残留，导致整机网络中断；系统重启后无法自动审计与清理残留规则；
+3. **流量回环难以防范**：本机代理出站流量若未做精细绕行，会再度被拦截并重新打回代理端口，瞬间引发死循环打爆系统。
 
-## 特性
+**LeanClash 为彻底解决上述痛点而生：**
 
-- **4 种模式**：tun / socks / tproxy / redir-tproxy；socks 入站由端口驱动（默认 mixed 20260，面板可改）
-- **systemd 实例探测**（非容器）：查询正在运行的 `mihomo@<mode>` 单元，首页显示「正在运行 X 模式」；即便实例是 `systemctl start mihomo@tun` 拉起的也能识别。容器后端不探测宿主机单元，只反映本进程拉起的实例
-- **规则生命周期**：启动 `mihomo@` 实例 → 延迟套用 nft/ip 规则 → 实例停止即清理（同生共死）；守护重启自动 reconcile 兜底；tun0 消失自动清理残留
-- **回环避免双方式**：`meta skgid`（GID，优先）或 `meta mark`（路由 mark），二选一可配置
-- **统一配置**：`/opt/leanclash/manager.yaml` 是规则数字/env/预定义入站的唯一事实源
-- **实时状态**：dbus 订阅 + SSE 推送，面板状态秒级刷新
-- **非 systemd 后端**：使用 `go build -tags container` 构建容器版本，直接由 manager 管理 `mihomo@<mode>` 子进程；默认构建使用 systemd/D-Bus
-- **配置同步**：`config_general.yaml` + 各模式预定义入站（socks 由 manager.yaml 的 `env.socks_port` 生成）→ `mihomo -t` 校验后生成各模式配置
-- **面板体验**：切换按真实结果反馈（已启动/已停止/失败）；守护进程不可达时明确提示并一键重试；配置编辑器未保存修改有二次确认保护
+* **单一二进制，极简交付**：整个项目编译为单一 Go 二进制程序（常驻守护进程 + 命令行 CLI），内嵌现代化 Web 前端，无任何外部环境依赖。
+* **4 种运行模式一键切换**：开箱支持 `tun`、`tproxy`、`redir-tproxy` 和 `socks`（SOCKS5/HTTP 混合代理，默认 20260 端口），与宿主机 `systemd` 或容器进程管理深度集成。
+* **规则与内核“同生共死”**：守护进程实时监听服务生命周期，内核实例启动时自动下发配套 nft/ip 规则，内核停止或异常崩溃时自动清理回收规则，守护进程重启时自动 reconcile 兜底，`tun0` 网卡消失时自动清理残留，彻底杜绝网络锁死。
+* **双重回环避免机制**：原生支持 `meta skgid`（系统专有用户组 GID 绕行，宿主机环境推荐）与 `meta mark` / `routing_mark`（Fwmark 标记绕行，容器环境推荐），二选一可灵活配置。
+* **配置单一事实源**：以 `config_general.yaml`（通用节点与分流规则）与 `manager.yaml`（规则端口、网络参数与入站预设）为中心，自动调用内核校验并原子合并生成各模式配置。
+* **系统状态实时响应**：宿主机原生通过 D-Bus 监听 systemd 状态，前端通过 SSE（Server-Sent Events）秒级推送，手动执行 `systemctl` 也能即时同步到面板。
 
-## 目录结构
+### 四大运行模式对比
 
+| 模式 | 运行实例 | 核心机制 | 适用场景与系统要求 |
+|---|---|---|---|
+| **TUN** | `mihomo@tun` | 创建虚拟网卡 `tun0`，由内核通过 `auto_route` 自动接管三层流量 | 通用性最高，不依赖特定 iptables/nftables 模块 |
+| **TPROXY** | `mihomo@tproxy` | 基于 `nftables` + `ip rule` 实现纯四层透明代理（默认端口 22016） | 性能优异，保留真实源 IP，适合现代 Linux 内核 |
+| **REDIR-TPROXY** | `mihomo@redir-tproxy` | TCP 使用 REDIRECT（端口 22017），UDP 使用 TPROXY（端口 22016） | 兼容老旧内核或特定需要 TCP REDIRECT 的软路由环境 |
+| **SOCKS** | `mihomo@socks` | 启动本地 Mixed (SOCKS5/HTTP) 代理端口（默认 20260） | 本地或局域网客户端显式代理，不修改系统路由 |
+
+---
+
+## 🎨 前端设计美学：WinUI 3 + Mica 材质
+
+前端基于 Vue 3 + Vite 构建，深度融合 Windows 11 Fluent Design 与 WinUI 3 视觉设计语言：
+
+* **Mica（云母）材质分层**：
+  * **动态采样本底**：窗口背景由柔光壁纸采样生成底色，并铺设细致双尺度微噪点层理（Micro-noise）；
+  * **通透半透明卡片**：内容卡片采用轻量柔和的半透明实色分层，去除二次模糊，让底层云母色自然透出；
+  * **Acrylic（亚克力）控件**：顶部导航胶囊与浮动 Toast 弹窗呈现高级通透感。
+* **深蓝渐变猫咪 Logo**：
+  * 专为 Mihomo 打造的精致猫咪形象，搭配深蓝至青蓝渐变，统一网站图标（Favicon）与控制台 Header。
+* **状态芯片与可视化交互**：
+  * **运行状态**：Hero 摘要卡片实时反馈当前生效模式，统计芯片直观展示单元活跃态与内核规则状态（正常 / 缺失 / 残留）；
+  * **配置管理**：双栏编辑器，支持主配置文件实时校验与模式配置只读比对，未保存修改具备二次确认保护；
+  * **系统设置**：可视化分段调整 `manager.yaml` 参数（端口、排除 GID、路由 Mark、入站预设模板）。
+
+---
+
+## 🛠️ 从源码构建、测试预览与编译
+
+### 前置要求
+* **Go**：`>= 1.22`
+* **Node.js**：`>= 18` 与 `npm`（构建前端所需；二进制自带占位页，无 node 环境亦可编译基本后端）
+* **mihomo 内核**（可选）：放置于 `build/mihomo`（测试与打包时会自动探测）
+
+### 1. 克隆项目
+```bash
+git clone git@github.com:vxzman/leanclash.git
+cd leanclash
 ```
-├── main.go              # 入口：go:embed 前端产物 + CLI 子命令分发
-├── internal/
-│   ├── api/             # REST API + SSE 推送
-│   ├── cli/             # CLI 子命令（模式启停/status/config sync）
-│   ├── config/          # manager.yaml 读写与同步
-│   ├── intercept/       # tun/tproxy/redir-tproxy 规则编排（exec ip/nft）
-│   ├── lifecycle/       # 模式生命周期（同生共死监控、reconcile）
-│   ├── netlink/         # 只读状态检测 + tun0 link 事件
-│   ├── server/          # 守护进程（systemd 常驻）
-│   └── systemd/         # dbus 启停/状态订阅
-├── web/                 # Vue 3 + Vite 前端（构建产物内嵌进二进制）
-├── deploy/              # systemd 单元 + 安装模板配置
-├── container/            # 容器入口脚本与默认配置
-├── Dockerfile            # 容器镜像定义
-├── docker-compose.yml    # 本地容器运行配置
-├── build.sh              # 二进制与容器统一构建入口
-├── deploy.sh             # 原生部署：打包 / 安装 / 卸载
-├── build/                # 构建产物（不提交）
-├── dev/                 # 本地开发 fixture（示例配置，无真实节点）
-└── LICENSE
-```
 
-## 构建
-
-环境要求：Go 1.22+、Node.js 18+（Vite 5 前端构建）。
+### 2. Web 前端开发与测试预览
+开发阶段可享受 Vite 带来的毫秒级热更新，同时使用 `deploy/` 下的 Linux 映射配置启动本地模拟后端：
 
 ```bash
-# 可选：构建前端（产物 web/dist/ 内嵌进二进制）
-cd web && npm install && npm run build
-cd ..
+# 终端 1：启动本地模拟后端（使用 deploy 映射配置，监听 0.0.0.0:8081）
+LEANCLASH_CONFIG=$PWD/deploy/opt/leanclash/manager.yaml go run . serve
 
-# 同时构建二进制和容器 tar.gz，产物全部写入 build/
-./build.sh
+# 终端 2：启动前端开发热更新服务器（代理 API 请求到 :8081）
+cd web
+npm install
+npm run dev
+```
+浏览器打开 `http://localhost:5173` 即可进行前端界面实时调试与预览。
 
-# 只构建原生二进制
+### 3. 编译普通二进制（Host 环境）
+使用根目录构建脚本一键完成前端打包与后端编译注入：
+```bash
 ./build.sh binary
-
-# 只构建容器二进制、镜像和 tar.gz
-./build.sh container
-
-# 查看构建信息
+```
+编译产物输出至 **`build/leanclash`**，前端静态资源已完全内嵌进单一二进制中。可以通过如下命令查看构建元数据：
+```bash
 ./build/leanclash info
 ```
 
-`leanclash info` 会显示版本、提交、UTC 构建时间、目标平台和 Go 运行时版本，便于区分测试构建。目标 ARM64 时使用 `TARGET_ARCH=arm64 ./build.sh`。
-
-构建容器前需要准备 Mihomo 运行时二进制 `build/mihomo`；它会被复制进容器镜像。
-
-容器使用 `container` build tag 编译独立的进程管理 backend；原生二进制使用
-systemd/D-Bus backend。两种二进制都由同一个 `build.sh` 生成。
-
-编译产物的部署方法见下一节；目标服务器无需安装 Go。
-
-## 部署到服务器（原生，不含容器）
-
-开发机打包、服务器安装/卸载都走 `deploy.sh`。包内含 LeanClash 二进制、systemd 单元、配置模板；若本地有 `build/mihomo` 也会打进去。
-
+### 4. 编译容器版本与 Docker 镜像
+在具备容器构建环境（Docker 或 Podman）的机器上，可一键完成双二进制、Debian 基础镜像与离线包构建：
 ```bash
-# 开发机：打包（文件名带时间戳，产物在 build/）
+# 准备目标架构的 mihomo 内核（若已有）
+mkdir -p build && cp /path/to/mihomo build/mihomo
+
+# 编译容器版独立进程二进制、构建镜像并生成 tar 归档
+./build.sh container
+```
+构建产物包括：
+* `build/leanclash`（Host systemd 版）
+* `build/leanclash-container`（带 `-tags container` 的独立进程版）
+* Docker 镜像 `localhost/leanclash:latest`
+* 离线归档包 `build/leanclash-<version>-<arch>-<timestamp>.tar.gz`
+
+---
+
+## 🚀 普通二进制部署（宿主机原生环境）
+
+LeanClash 采用类似标准 Linux 根文件系统的映射目录结构（`deploy/`），并提供统一的一键部署脚本 [deploy.sh](deploy.sh)。
+
+### 方案 A：一键打包与安装部署（推荐，免目标机编译环境）
+
+#### 1. 在开发机上一键打包
+在本地开发机执行打包命令，脚本会自动将编译产物复制至 Linux 映射结构并打成带有时间戳的压缩包：
+```bash
 ./deploy.sh --pack
-# 例如: build/leanclash-native-amd64-20260913_083415.tar.gz
+```
+产物统一生成于 **`build/leanclash-deploy-<version>-<timestamp>.tar.gz`**（包内含二进制、服务单元、配置文件模板与部署脚本）。
 
-# 上传安装包和脚本到服务器后直接安装（不必先解压）
-scp deploy.sh build/leanclash-native-*.tar.gz 服务器:/tmp/
-ssh 服务器
-sudo /tmp/deploy.sh --install --file /tmp/leanclash-native-amd64-20260913_083415.tar.gz
-
-# 卸载程序（保留配置与数据）
-sudo ./deploy.sh --remove
-
-# 连同 /opt/leanclash、/etc/mihomo、数据目录一并删除
-sudo ./deploy.sh --remove --purge
+#### 2. 上传安装包至目标服务器
+```bash
+scp build/leanclash-deploy-*.tar.gz root@<server_ip>:/tmp/
 ```
 
-`--install` 会：创建 `mihomo` 系统用户（已存在则跳过）、安装二进制到 `/usr/local/bin/leanclash`、写入 `leanclash.service` 与 `mihomo@.service`、创建 `/etc/mihomo` `/opt/leanclash` `/var/lib/mihomo` `/var/log/mihomo` 并设置属主，已有 `config_general.yaml` 不会覆盖，然后 `enable --now leanclash`。服务器上若还没有 mihomo 内核且包内也没有，安装会失败。
+#### 3. 在目标服务器上一键安装部署
+登录服务器并直接指定部署包进行一键安装：
+```bash
+ssh root@<server_ip>
+sudo ./deploy.sh --install --file /tmp/leanclash-deploy-*.tar.gz
+```
+> **部署脚本全自动完成**：
+> 1. 检查并创建专用系统用户与组 `mihomo`；
+> 2. 初始化 `/etc/mihomo`、`/var/lib/mihomo`、`/var/log/mihomo`、`/opt/leanclash` 等目录并正确设置属主与权限；
+> 3. 安装 `leanclash` 与 `mihomo` 到 `/usr/local/bin/` 并赋予必要网络能力（Capability）；
+> 4. 安装配置模板，并自动匹配检测到的 `mihomo` 用户组 GID 到 `manager.yaml`；
+> 5. 安装 `leanclash.service` 与 `mihomo@.service` 服务单元；
+> 6. 重载 systemd 并启动 `leanclash.service` 开机自启。
 
-## 容器运行与部署
+#### 4. 卸载与清理（如需）
+```bash
+sudo ./deploy.sh --remove
+# 如需连同 /opt/leanclash、配置与数据目录一并删除：
+# sudo ./deploy.sh --remove --purge
+```
 
-LeanClash 提供了专门针对容器环境构建的版本（`./build.sh container`，使用 `container` build tag 编译）。容器镜像内置了独立的轻量进程管理器，无需 systemd 与 D-Bus 依赖，直接管理 `mihomo` 子进程及其网络规则。
+---
 
-> [!IMPORTANT]
-> **容器回环避免关键提示（使用 routing_mark）**：
-> 宿主机原生部署时 Mihomo 运行在专有的 `mihomo` 系统用户组下，默认通过排除 GID（`meta skgid`）避免流量回环；但**容器精简环境中不创建专有用户**（进程直接以 root 运行），此时无法通过 GID 区分出站流量。因此在容器环境下**必须使用 routing_mark（路由标记，如 6666）避免回环**：
-> 1. **Mihomo 配置**：在 `/etc/mihomo/config_general.yaml` 中添加 `routing-mark: 6666`，让内核对 Mihomo 自身的出站流量打上标记。
-> 2. **LeanClash 管理配置**：在面板「系统设置」中将 TPROXY / REDIR-TPROXY 的「回环避免方式」切换为 **Mark**，或者在 `/opt/leanclash/manager.yaml` 中设置 `routing_mark: 6666` 并将 `exclude_gid: 0`。
-> 
-> 若未正确配置 routing_mark，透明代理流量将被自身重复捕获引发死循环导致容器断网。
+### 方案 B：手动文件部署说明（Linux 目录映射参考）
 
-### 1. 普通 Docker 容器（Host 网络模式）
+若习惯纯手工放置文件，可参考 `deploy/` 的映射关系进行安装：
 
-适合常规 Linux 服务器裸跑容器，容器直接共享宿主机网络命名空间并操作策略路由与 nftables。
+| 本地映射路径 | 目标系统绝对路径 | 权限/所有者 | 描述 |
+|---|---|---|---|
+| `deploy/usr/local/bin/leanclash` | `/usr/local/bin/leanclash` | `0755 root:root` | LeanClash 控制平面主程序 |
+| `deploy/usr/local/bin/mihomo` | `/usr/local/bin/mihomo` | `0755 root:root` | mihomo 代理内核 |
+| `deploy/etc/systemd/system/leanclash.service` | `/etc/systemd/system/leanclash.service` | `0644 root:root` | Web 控制台与编排守护单元 |
+| `deploy/etc/systemd/system/mihomo@.service` | `/etc/systemd/system/mihomo@.service` | `0644 root:root` | 内核实例运行模板单元 |
+| `deploy/etc/mihomo/config_general.yaml` | `/etc/mihomo/config_general.yaml` | `0644 root:root` | 用户代理配置单一事实源 |
+| `deploy/opt/leanclash/manager.yaml` | `/opt/leanclash/manager.yaml` | `0644 root:root` | 系统编排与网络环境变量配置 |
+| 运行时数据目录 | `/var/lib/mihomo/` | `0750 mihomo:mihomo` | 内核缓存与数据目录 |
+| 运行时日志目录 | `/var/log/mihomo/` | `0750 mihomo:mihomo` | 日志目录 |
 
-#### 方式 A：Docker Compose 启动（推荐）
+手动启动服务命令：
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now leanclash.service
+```
+
+### 日常热更新
+二进制内置前端，日常迭代更新只需上传单一文件并重启服务：
+```bash
+scp build/leanclash root@<server_ip>:/usr/local/bin/leanclash
+ssh root@<server_ip> 'systemctl restart leanclash'
+```
+
+### 命令行常用操作
+除了 Web 面板，亦可直接通过命令行管理：
+```bash
+sudo leanclash info                 # 查看当前版本、Git提交与运行平台
+sudo leanclash status               # 查看各模式实例及网络规则活跃状态
+sudo leanclash tun start            # 启动 TUN 模式（支持 tun|tproxy|redir-tproxy|socks）
+sudo leanclash tun stop             # 停止模式并自动清理对应规则
+sudo leanclash config sync          # 基于通用配置重新校验并生成各模式配置
+```
+
+---
+
+## 🐳 容器化部署（Docker / Compose / Kata）
+
+容器版本使用 `leanclash-container` 独立进程后端（使用 `container` build tag 编译），无需依赖宿主机 systemd 或 D-Bus，由 LeanClash 直接接管 `mihomo` 子进程生命周期与 iptables/nftables 规则。
+
+> ⚠️ **容器环境关键注意事项（回环避免必须使用 routing_mark）**：
+> 1. 宿主机原生部署时 Mihomo 运行在专有 `mihomo` 用户下，通过 `meta skgid` 排除 GID 避免流量回环；
+> 2. 但**容器精简环境中进程以 root 运行**，没有专有的宿主机 GID，因此**严禁使用 `meta skgid`**，必须使用 `routing_mark`（如 6666）避免回环：
+>    * 在 `/etc/mihomo/config_general.yaml` 中添加 `routing-mark: 6666`；
+>    * 在 Web 面板「系统设置」或 `/opt/leanclash/manager.yaml` 中将回环避免设为 Mark，设置 `routing_mark: 6666` 且 `exclude_gid: 0`。
+
+### 1. 使用 Docker Compose（标准 Host 网络模式）
+
+直接使用项目根目录的 [docker-compose.yml](docker-compose.yml)：
 
 ```yaml
-# docker-compose.yml
 services:
   leanclash:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: localhost/leanclash:latest
     container_name: leanclash
     restart: unless-stopped
@@ -148,13 +230,13 @@ volumes:
     driver: local
 ```
 
-启动与管理：
+启动与日志监控：
 ```bash
 docker compose up -d
 docker compose logs -f
 ```
 
-#### 方式 B：Docker Run 命令行启动
+### 2. 使用 `docker run` 直接运行
 
 ```bash
 docker run -d \
@@ -168,119 +250,105 @@ docker run -d \
   localhost/leanclash:latest
 ```
 
----
+容器启动后，即可在浏览器访问 `http://<服务器IP>:8081`。
 
-### 2. Kata Container（独立网络命名空间与独立内核）
+### 3. Kata Containers 强隔离部署（硬件级微虚机沙箱）
 
-在需要将透明代理完全与宿主机内核隔离的场景（如旁路网关、高隔离多租户容器等），推荐使用 **Kata Containers** 运行。Kata 为容器分配轻量级虚拟机内核与独立网络命名空间（如 `macvlan` 或独立网桥 `bridge`），此时透明代理的策略路由与 nftables 仅作用于该虚拟化网络命名空间内，不干扰宿主机。
+在多租户服务器、公共云计算实例或对安全性要求极高的生产环境中，代理内核（处理复杂外网流量、解密 TLS 等）以及网络特权操作往往具有潜在的安全暴露面。
 
-#### systemd 服务单元管理（使用 nerdctl + Kata 运行时）
+**传统 runc 容器 vs Kata Containers 隔离对比**：
 
-创建 `/etc/systemd/system/leanclash-container.service`：
+* **传统 runc 容器**：容器与宿主机共享同一个 Linux 内核。透明代理所需的 `--privileged` 特权与 `CAP_NET_ADMIN` 使得容器进程能够直接触碰宿主机内核底层；一旦代理内核或 netfilter 驱动存在漏洞，存在攻击者逃逸至宿主机的风险。
+* **Kata Containers（微虚机架构）**：每个容器均运行在独立的轻量级虚拟机（MicroVM，基于 QEMU / Cloud Hypervisor）之中，拥有**完全专享且独立的 Guest Linux 内核**。
+  * **特权安全封锁**：容器内赋予的 `--privileged` 仅作用于该微虚机内部的 Guest 内核，无法突破硬件虚拟化层侵入物理宿主机；
+  * **网络零污染**：在微虚机中建立的全部 `nftables` 规则与 `tun0` 路由表均在微虚机内部闭环，物理宿主机的全局网络与防火墙保持绝对纯净。
 
-```ini
-# /etc/systemd/system/leanclash-container.service
-[Unit]
-Description=Mihomo Kata Container
-After=containerd.service network-online.target
-Wants=network-online.target
-Requires=containerd.service
-
-[Service]
-Type=simple
-Restart=always
-RestartSec=5s
-TimeoutStartSec=0
-TimeoutStopSec=30
-# 启动前清理同名残留实例
-ExecStartPre=-/usr/local/bin/nerdctl rm -f leanclash-container
-ExecStart=/usr/local/bin/nerdctl run --rm \
-  --name leanclash-container \
-  --cgroup-manager=cgroupfs \
-  --runtime io.containerd.kata.v2 \
-  --network macv0 \
-  --cap-add=NET_ADMIN \
-  --cap-add=NET_BIND_SERVICE \
-  --device /dev/net/tun:/dev/net/tun \
-  -v /opt/leanclash-container/config:/etc/mihomo \
-  -v /opt/leanclash-container/data:/var/lib/mihomo \
-  -v /opt/leanclash-container/manager:/opt/leanclash \
-  -e TZ=Asia/Shanghai \
-  --sysctl net.ipv4.ip_forward=1 \
-  --sysctl net.ipv6.conf.all.forwarding=1 \
-  --sysctl net.ipv6.conf.all.accept_ra=2 \
-  --sysctl net.ipv6.conf.eth0.accept_ra=2 \
-  --sysctl net.ipv4.ip_local_port_range="1024 65535" \
-  --sysctl net.ipv4.tcp_tw_reuse=1 \
-  --sysctl net.ipv4.tcp_fin_timeout=15 \
-  --sysctl net.core.somaxconn=32768 \
-  --sysctl net.ipv4.tcp_max_syn_backlog=16384 \
-  --sysctl net.core.netdev_max_backlog=16384 \
-  --sysctl net.core.rmem_max=16777216 \
-  --sysctl net.core.wmem_max=16777216 \
-  --sysctl net.ipv4.tcp_rmem="4096 87380 16777216" \
-  --sysctl net.ipv4.tcp_wmem="4096 65536 16777216" \
-  --sysctl net.ipv4.tcp_congestion_control=bbr \
-  --sysctl net.ipv4.neigh.default.gc_thresh1=2048 \
-  --sysctl net.ipv4.neigh.default.gc_thresh2=4096 \
-  --sysctl net.ipv4.neigh.default.gc_thresh3=8192 \
-  --sysctl net.ipv6.neigh.default.gc_thresh1=2048 \
-  --sysctl net.ipv6.neigh.default.gc_thresh2=4096 \
-  --sysctl net.ipv6.neigh.default.gc_thresh3=8192 \
-  localhost/leanclash-container:latest
-ExecStop=/usr/local/bin/nerdctl stop -t 15 leanclash-container
-
-[Install]
-WantedBy=multi-user.target
+#### 前置环境准备
+确保宿主机 CPU 支持硬件虚拟化（`egrep -c '(vmx|svm)' /proc/cpuinfo`），并在 Docker 中配置了 Kata 运行时（如 `/etc/docker/daemon.json`）：
+```json
+{
+  "runtimes": {
+    "kata-qemu": {
+      "path": "/usr/bin/kata-runtime"
+    },
+    "kata-clh": {
+      "path": "/usr/bin/kata-runtime"
+    }
+  }
+}
 ```
 
-#### Kata 运行要点说明：
-- **`--runtime io.containerd.kata.v2`**：调用 Kata 轻量虚机运行时，提供独立的 Linux 内核环境。
-- **`--network macv0`**：连接指定网段的 macvlan / 独立网桥，容器拥有独立二层 IP 和独立路由命名空间。
-- **`--device /dev/net/tun:/dev/net/tun` 与 `--cap-add=NET_ADMIN`**：支持创建 TUN 虚拟网卡设备及配置策略路由。
-- **独立内核网络调优（`--sysctl`）**：由于 Kata 拥有独立虚拟化内核，可以安全注入内核级网络优化参数（包括开启 IPv4/IPv6 流量转发 `ip_forward`、TCP BBR 拥塞控制、扩大连接队列与内存缓冲区 `rmem_max`/`wmem_max`、调大邻居表垃圾回收阈值等），而无需担心影响宿主机。
-- **回环避免（必须使用 Mark）**：容器精简环境无专有用户，必须在 `/opt/leanclash-container/config/config_general.yaml` 中配置 `routing-mark: 6666`，并在 Web 面板或 `manager.yaml` 中将回环避免设为 Mark（`routing_mark: 6666`, `exclude_gid: 0`）。
-- **持久化目录**：宿主机目录 `/opt/leanclash-container/{config,data,manager}` 分别映射至容器内 `/etc/mihomo`、`/var/lib/mihomo` 与 `/opt/leanclash`。
+#### 部署方式一：使用 Docker Compose（微虚机独立端口映射）
+项目提供开箱即用的 [docker-compose.kata.yml](docker-compose.kata.yml)：
 
-启用与启动服务：
 ```bash
-sudo systemctl daemon-reload
+docker compose -f docker-compose.kata.yml up -d
+docker compose -f docker-compose.kata.yml logs -f
+```
+
+配置将 Web 面板端口 `8081` 与 Mixed 代理端口 `20260` 暴露，所有内核操作在 Kata 独立的 Guest Linux 内核中安全沙箱化运行。
+
+#### 部署方式二：独立旁路网关模式（Macvlan / 局域网物理直通，强烈推荐）
+通过 Docker Macvlan 驱动将物理局域网网段直接接入 Kata 容器微虚机，让其作为一个独立的物理“网络硬件设备”运行：
+
+```bash
+# 1. 创建直通局域网的 Macvlan 网络（以 eth0 为父网卡为例）
+docker network create -d macvlan \
+  --subnet=192.168.1.0/24 \
+  --gateway=192.168.1.1 \
+  -o parent=eth0 kata-lan
+
+# 2. 启动 Kata 独立微虚机容器，并赋予专属内网 IP（如 192.168.1.88）
+docker run -d \
+  --runtime kata-qemu \
+  --name leanclash-kata \
+  --restart unless-stopped \
+  --network kata-lan \
+  --ip 192.168.1.88 \
+  --privileged \
+  --device /dev/net/tun:/dev/net/tun \
+  -v /opt/leanclash-kata/config:/etc/mihomo \
+  -v /opt/leanclash-kata/data:/var/lib/mihomo \
+  -v /opt/leanclash-kata/manager:/opt/leanclash \
+  localhost/leanclash:latest
+```
+
+* **使用效果**：局域网中其他设备或客户端只需将**默认网关**与 **DNS** 设定为 `192.168.1.88`，即可透明享受高速科学代理；即使该代理实例遭遇高压甚至未知攻击，物理宿主机与物理局域网其他服务依然安然无恙。
+
+#### 部署方式三：nerdctl + containerd systemd 单元（带高级 sysctl 调优）
+在以 containerd 为容器运行时的生产主机上，可直接使用 nerdctl 启动并注入专有 Guest 内核调优参数（如开启 BBR 拥塞控制、扩大连接队列与内存缓冲区）：
+
+```bash
+# 服务单元模板参考：使用 --runtime io.containerd.kata.v2 与 --network macv0
 sudo systemctl enable --now leanclash-container
 ```
 
-## 常用命令
+---
 
-```bash
-sudo leanclash tun start              # 启动模式（tun|socks|tproxy|redir-tproxy）
-sudo leanclash tproxy stop            # 停止（规则自动清理）
-sudo leanclash status                 # 各模式/单元/规则状态
-sudo leanclash config sync            # 重新生成各模式配置（mihomo -t 校验）
-leanclash info                        # 版本/编译时间/目标平台（无需 root）
-```
+## 🔒 安全与反向代理
 
-安装后检查：`/opt/leanclash/manager.yaml` 里 tproxy/redir-tproxy 的 `exclude_gid` 与 `id -g mihomo` 一致（不一致会环路），可在面板「系统设置」修改。tun 模式的 `device: tun0` 按实际机器调整。socks 入站端口（默认 20260）在「系统设置 · SOCKS / SERVER」修改，保存后自动重新生成 `config_socks.yaml`；老版本 manager.yaml 里的 socks preset 会在守护进程启动时自动迁移为 `env.socks_port`。
+### 1. 监听安全说明
+Web 控制面板默认**不设强制鉴权**，出于安全考虑：
+* **默认仅监听 IPv4**（`0.0.0.0:8081`），不暴露外部未保护的 IPv6；
+* 如需仅限本机回环访问，可在面板「系统设置」或 `/opt/leanclash/manager.yaml` 中修改：
+  ```yaml
+  daemon:
+    web_addr: "127.0.0.1:8081"
+  ```
+* 修改后执行 `sudo systemctl restart leanclash`（或容器重启）生效。
 
-## 监听地址与 IPv6（安全说明）
+### 2. Nginx 反向代理配置（带 Basic Auth 与 SSE 优化）
 
-面板无鉴权，**默认仅监听 IPv4**（`0.0.0.0:8081`，不暴露 IPv6）。在 manager.yaml 中调整：
-
-- 仅本机访问：`web_addr: "127.0.0.1:8081"`
-- 显式启用 IPv6：`web_addr: "[::]:8081"`（仅 IPv6）或 `":8081"`（双栈，含 IPv4）
-
-修改后 `sudo systemctl restart leanclash` 生效（也可在面板「系统设置」修改）。
-
-## nginx 反向代理配置示例
-
-面板（`http://<host>:8081`）无内置鉴权，公网暴露建议经 nginx 反代并加 Basic Auth：
+若需将面板暴露于公网，强烈建议通过 Nginx 进行反向代理并开启密码认证（Basic Auth）。由于面板使用了 **SSE（Server-Sent Events）** 实时推送状态，需对反代缓冲区与超时进行配置：
 
 ```nginx
 server {
     listen 80;
     server_name mihomo.example.com;
 
-    # 可选：面板无鉴权，建议开启 Basic Auth（先 htpasswd -c /etc/nginx/.htpasswd 用户名）
-    # auth_basic "LeanClash";
-    # auth_basic_user_file /etc/nginx/.htpasswd;
+    # 启用 HTTP 基本认证（通过 htpasswd -c /etc/nginx/.htpasswd 用户名 生成）
+    auth_basic "LeanClash Control Panel";
+    auth_basic_user_file /etc/nginx/.htpasswd;
 
     location / {
         proxy_pass http://127.0.0.1:8081;
@@ -290,30 +358,52 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # SSE 实时状态推送必须：关闭缓冲、放宽读超时
+        # SSE 实时状态推送关键配置：关闭缓冲、放宽读写超时
         proxy_buffering off;
         proxy_cache off;
-        proxy_read_timeout 1h;
-        proxy_send_timeout 1h;
+        proxy_read_timeout 24h;
+        proxy_send_timeout 24h;
         proxy_set_header Connection '';
     }
 }
 ```
 
-HTTPS 用 certbot 免费证书：
+---
 
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d mihomo.example.com
+## 📂 项目结构全景
+
+```
+.
+├── main.go                     # CLI 命令行与守护进程主入口
+├── build.sh                    # 原生双二进制与 Debian 容器构建脚本
+├── deploy.sh                   # 一键打包 (--pack)、部署 (--install) 与卸载 (--remove) 脚本
+├── docker-compose.yml          # 容器编排部署配置 (Host 模式)
+├── docker-compose.kata.yml     # Kata Containers 微虚机强隔离部署配置
+├── Dockerfile                  # 容器镜像定义
+├── deploy/                     # Linux 标准系统目录映射（用于测试、模拟与一键打包）
+│   ├── etc/
+│   │   ├── mihomo/             # 配置文件模板 (config_general.yaml, 各模式参考配置)
+│   │   └── systemd/system/     # 服务单元模板 (leanclash.service, mihomo@.service)
+│   ├── opt/leanclash/          # 系统设置模板 (manager.yaml)
+│   ├── usr/local/bin/          # 二进制文件落位与打包目录
+│   └── var/lib/mihomo/         # 运行数据目录占位
+├── internal/                   # 核心实现逻辑
+│   ├── api/                    # RESTful 控制接口与 SSE 事件流
+│   ├── cli/                    # 命令行控制逻辑
+│   ├── config/                 # 配置模型加载、合并、校验
+│   ├── intercept/              # nftables / 策略路由编排与回环避免核心
+│   ├── lifecycle/              # 模式同生共死生命周期状态机
+│   ├── netlink/                # Linux Netlink 路由与网络事件通信
+│   ├── server/                 # HTTP/SSE 服务端装配
+│   └── systemd/                # systemd D-Bus 实例交互后端
+├── web/                        # Vue 3 前端工程
+│   ├── src/                    # 前端源码（WinUI 3 + Mica 材质样式）
+│   └── dist/                   # 前端编译产物（由 Go 二进制内嵌）
+└── container/                  # 容器专用初始化与默认配置
 ```
 
-## 本地开发
+---
 
-```bash
-./dev/run.sh                # 守护进程（dev fixture，不碰系统路径），面板 :8081
-cd web && npm run dev       # 前端热更新（vite 代理到 :8081）
-```
-
-## 许可证
+## 📄 License
 
 [MIT](LICENSE) © 2026 vxzman

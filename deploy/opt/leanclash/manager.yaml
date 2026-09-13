@@ -1,11 +1,11 @@
-# dev fixture：相对目录以本文件所在位置为基准解析，避免写死机器路径
+# LeanClash 系统配置文件（默认部署于 /opt/leanclash/manager.yaml）
 dirs:
-  config_dir: etc-mihomo
+  config_dir: /etc/mihomo
   data_dir: /var/lib/mihomo
 
 daemon:
-  web_addr: "127.0.0.1:8081"
-  cli_socket: dev/leanclash.sock
+  web_addr: "0.0.0.0:8081"
+  cli_socket: /run/leanclash/leanclash.sock
   apply_delay_ms: 1000
   reconcile_interval: 5s
 

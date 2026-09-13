@@ -1,0 +1,25 @@
+services:
+  leanclash-kata:
+    image: localhost/leanclash:latest
+    container_name: leanclash-kata
+    runtime: kata-qemu
+    restart: unless-stopped
+    privileged: true
+    # 端口映射：8081 为 Web 面板，20260 为 SOCKS5/HTTP 混合代理端口
+    ports:
+      - "8081:8081"
+      - "20260:20260"
+    volumes:
+      - leanclash-kata-config:/etc/mihomo
+      - leanclash-kata-data:/var/lib/mihomo
+      - leanclash-kata-manager:/opt/leanclash
+    devices:
+      - /dev/net/tun:/dev/net/tun
+
+volumes:
+  leanclash-kata-config:
+    driver: local
+  leanclash-kata-data:
+    driver: local
+  leanclash-kata-manager:
+    driver: local
