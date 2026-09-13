@@ -5,7 +5,8 @@
      body::before  大面积柔光壁纸（给窗口采样上色）
      body::after   桌面微噪点
      .app          薄染色 + 高饱和模糊 = 云母
-     .app::after   云母噪点（铺在窗口材质上）
+     .app::before  层理 / 云斑 / 顶部高光
+     .app::after   双尺度噪点（铺在窗口材质上）
      .topnav/.card 半透明实色，让云母色透出来
      .toast        Acrylic
    ============================================================ */
@@ -21,7 +22,8 @@
   --card-fill-hover: rgba(255, 255, 255, 0.48);
   --card-fill-2: rgba(255, 255, 255, 0.28);
   --surface-strong: rgba(255, 255, 255, 0.62);
-  --mica-noise: 0.32;
+  --mica-noise: 0.48;
+  --mica-vein: 0.7;
 
   /* ── 控件 ── */
   --control-fill: rgba(255, 255, 255, 0.65);
@@ -94,7 +96,8 @@
     --card-fill-hover: rgba(255, 255, 255, 0.08);
     --card-fill-2: rgba(255, 255, 255, 0.04);
     --surface-strong: rgba(32, 36, 44, 0.72);
-    --mica-noise: 0.22;
+    --mica-noise: 0.38;
+    --mica-vein: 0.55;
     --control-fill: rgba(255, 255, 255, 0.06);
     --control-fill-hover: rgba(255, 255, 255, 0.09);
     --control-fill-pressed: rgba(255, 255, 255, 0.04);
@@ -131,9 +134,10 @@
   }
 }
 
-/* ── 噪点纹理 ── */
+/* ── 噪点纹理：粗粒 + 细晶，叠在窗口上才有云母层理 ── */
 :root {
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.14'/%3E%3C/svg%3E");
+  --grain-fine: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.55' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.2'/%3E%3C/svg%3E");
 }
 
 /* ── 模式强调色 ── */
@@ -222,6 +226,24 @@ body::after {
   backdrop-filter: blur(60px) saturate(180%);
   -webkit-backdrop-filter: blur(60px) saturate(180%);
 }
+/* 层理 + 云斑 + 顶部高光：让窗口底不只是一块平色 */
+.app::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: var(--mica-vein);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.20) 0%, transparent 26%),
+    radial-gradient(ellipse 55% 42% at 18% 12%, rgba(255, 255, 255, 0.16), transparent 70%),
+    radial-gradient(ellipse 48% 38% at 88% 78%, rgba(0, 95, 184, 0.10), transparent 68%),
+    radial-gradient(ellipse 36% 30% at 62% 36%, rgba(255, 255, 255, 0.08), transparent 70%),
+    repeating-linear-gradient(118deg, transparent 0 15px, rgba(255, 255, 255, 0.045) 16px, transparent 17px 34px),
+    repeating-linear-gradient(28deg, transparent 0 21px, rgba(0, 80, 160, 0.035) 22px, transparent 23px 46px);
+  mix-blend-mode: soft-light;
+}
 .app::after {
   content: '';
   position: absolute;
@@ -230,10 +252,21 @@ body::after {
   pointer-events: none;
   border-radius: inherit;
   opacity: var(--mica-noise);
-  background-image: var(--grain);
-  background-repeat: repeat;
-  background-size: 140px 140px;
+  background-image: var(--grain), var(--grain-fine);
+  background-repeat: repeat, repeat;
+  background-size: 180px 180px, 64px 64px;
   mix-blend-mode: overlay;
+}
+@media (prefers-color-scheme: dark) {
+  .app::before {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, transparent 28%),
+      radial-gradient(ellipse 55% 42% at 18% 10%, rgba(255, 255, 255, 0.06), transparent 70%),
+      radial-gradient(ellipse 48% 38% at 90% 80%, rgba(64, 156, 255, 0.10), transparent 68%),
+      radial-gradient(ellipse 36% 30% at 58% 40%, rgba(255, 255, 255, 0.04), transparent 70%),
+      repeating-linear-gradient(118deg, transparent 0 15px, rgba(255, 255, 255, 0.03) 16px, transparent 17px 34px),
+      repeating-linear-gradient(28deg, transparent 0 21px, rgba(80, 140, 220, 0.04) 22px, transparent 23px 46px);
+  }
 }
 
 ::selection { background: rgba(0, 95, 184, 0.35); }
