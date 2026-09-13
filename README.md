@@ -44,6 +44,7 @@
 ├── Dockerfile            # 容器镜像定义
 ├── docker-compose.yml    # 本地容器运行配置
 ├── build.sh              # 二进制与容器统一构建入口
+├── deploy.sh             # 原生部署：打包 / 安装 / 卸载
 ├── build/                # 构建产物（不提交）
 ├── dev/                 # 本地开发 fixture（示例配置，无真实节点）
 └── LICENSE
@@ -80,68 +81,29 @@ systemd/D-Bus backend。两种二进制都由同一个 `build.sh` 生成。
 
 编译产物的部署方法见下一节；目标服务器无需安装 Go。
 
-## 部署到服务器（免编译，上传哪些文件）
+## 部署到服务器（原生，不含容器）
 
-前置：目标机已安装 mihomo 内核 `sudo cp mihomo /usr/local/bin/mihomo`。
-
-**首次部署需要上传以下文件**：
-
-| 文件 | 目标位置 |
-|---|---|
-| `build/leanclash`（已编译二进制，前端已内嵌） | `/usr/local/bin/leanclash` |
-| `deploy/mihomo@.service` | `/etc/systemd/system/` |
-| `deploy/leanclash.service` | `/etc/systemd/system/leanclash.service` |
-| `deploy/etc-mihomo/config_general.yaml`（模板配置） | `/etc/mihomo/` |
+开发机打包、服务器安装/卸载都走 `deploy.sh`。包内含 LeanClash 二进制、systemd 单元、配置模板；若本地有 `build/mihomo` 也会打进去。
 
 ```bash
-# 在开发机打包二进制和 systemd 文件
-tar czf /tmp/leanclash-dist.tar.gz build/leanclash deploy/
+# 开发机：打包（文件名带时间戳，产物在 build/）
+./deploy.sh --pack
+# 例如: build/leanclash-native-amd64-20260913_083415.tar.gz
 
-# 上传到服务器
-scp /tmp/leanclash-dist.tar.gz 服务器:/tmp/
+# 上传到服务器后解压安装
+scp build/leanclash-native-*.tar.gz 服务器:/tmp/
 ssh 服务器
-cd /tmp && tar xzf leanclash-dist.tar.gz
+cd /tmp && tar xzf leanclash-native-*.tar.gz && cd leanclash-native-*
+sudo ./deploy.sh --install
 
-# 安装二进制和 systemd 单元
-sudo install -m 0755 /tmp/build/leanclash /usr/local/bin/leanclash
-sudo install -m 0644 /tmp/deploy/mihomo@.service /etc/systemd/system/mihomo@.service
-sudo install -m 0644 /tmp/deploy/leanclash.service /etc/systemd/system/leanclash.service
-sudo install -d -m 0755 /etc/mihomo /opt/leanclash
-sudo install -m 0644 /tmp/deploy/etc-mihomo/config_general.yaml /etc/mihomo/config_general.yaml
-sudo install -d -m 0750 -o root -g root /var/lib/mihomo /var/log/mihomo
-sudo systemctl daemon-reload
-sudo systemctl enable --now leanclash
+# 卸载程序（保留配置与数据）
+sudo ./deploy.sh --remove
+
+# 连同 /opt/leanclash、/etc/mihomo、数据目录一并删除
+sudo ./deploy.sh --remove --purge
 ```
 
-手动安装等效命令：
-
-```bash
-sudo install -m 0755 /tmp/build/leanclash /usr/local/bin/leanclash
-sudo cp /tmp/deploy/mihomo@.service /tmp/deploy/leanclash.service /etc/systemd/system/
-sudo mkdir -p /etc/mihomo && sudo cp /tmp/deploy/etc-mihomo/config_general.yaml /etc/mihomo/
-sudo useradd --system --shell /usr/sbin/nologin --home-dir /var/lib/mihomo --no-create-home mihomo
-sudo mkdir -p /var/lib/mihomo /var/log/mihomo && sudo chown mihomo:mihomo /var/lib/mihomo /var/log/mihomo
-sudo systemctl daemon-reload && sudo systemctl enable --now leanclash
-```
-
-**日常更新只传 1 个文件**：
-
-```bash
-scp build/leanclash 服务器:/tmp/
-ssh 服务器 'sudo install -m 0755 /tmp/leanclash /usr/local/bin/leanclash && sudo systemctl restart leanclash'
-```
-
-**停止、卸载和清理：**
-
-```bash
-sudo systemctl disable --now leanclash
-sudo rm -f /usr/local/bin/leanclash
-sudo rm -f /etc/systemd/system/leanclash.service /etc/systemd/system/mihomo@.service
-sudo systemctl daemon-reload
-```
-
-配置文件和 Mihomo 数据默认保留在 `/opt/leanclash`、`/etc/mihomo` 和
-`/var/lib/mihomo`；确认不再需要后再手动删除。
+`--install` 会：创建 `mihomo` 系统用户（已存在则跳过）、安装二进制到 `/usr/local/bin/leanclash`、写入 `leanclash.service` 与 `mihomo@.service`、创建 `/etc/mihomo` `/opt/leanclash` `/var/lib/mihomo` `/var/log/mihomo` 并设置属主，已有 `config_general.yaml` 不会覆盖，然后 `enable --now leanclash`。服务器上若还没有 mihomo 内核且包内也没有，安装会失败。
 
 ## 容器运行与部署
 
