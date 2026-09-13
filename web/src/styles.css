@@ -2,27 +2,26 @@
    LeanClash — WinUI 3 Mica 材质分层
    ————————————————————————————————————————
    层级（自下而上）：
-     body::before  极淡色温（模拟桌面壁纸采样，不要花纹）
-     body::after   微噪点
-     body          --mica-base
-     .app          窗口唯一一层 Mica（blur 壁纸）
-     .topnav       Layer on Mica，不再二次模糊
-     .card/.tile   半透明实色铺在云母上，不再 backdrop-filter
-     .toast        Acrylic（飞出层才用模糊）
+     body::before  大面积柔光壁纸（给窗口采样上色）
+     body::after   桌面微噪点
+     .app          薄染色 + 高饱和模糊 = 云母
+     .app::after   云母噪点（铺在窗口材质上）
+     .topnav/.card 半透明实色，让云母色透出来
+     .toast        Acrylic
    ============================================================ */
 
 :root {
   color-scheme: light;
 
-  /* ── Mica 材质 ── */
-  --mica-base: #e4e9f0;
-  --mica-tint: rgba(243, 243, 243, 0.55);
-  --layer-fill: rgba(255, 255, 255, 0.38);
-  --nav-fill: rgba(255, 255, 255, 0.22);
-  --card-fill: rgba(255, 255, 255, 0.46);
-  --card-fill-hover: rgba(255, 255, 255, 0.62);
-  --card-fill-2: rgba(246, 246, 246, 0.42);
-  --surface-strong: rgba(255, 255, 255, 0.82);
+  /* ── Mica 材质：窗口必须够透，底必须够有色，否则一模糊就是白 ── */
+  --mica-base: #b7c7dc;
+  --mica-tint: rgba(236, 242, 250, 0.22);
+  --nav-fill: rgba(255, 255, 255, 0.10);
+  --card-fill: rgba(255, 255, 255, 0.34);
+  --card-fill-hover: rgba(255, 255, 255, 0.48);
+  --card-fill-2: rgba(255, 255, 255, 0.28);
+  --surface-strong: rgba(255, 255, 255, 0.62);
+  --mica-noise: 0.32;
 
   /* ── 控件 ── */
   --control-fill: rgba(255, 255, 255, 0.65);
@@ -60,7 +59,7 @@
   --err: #c42b1c;   --err-bg: rgba(196, 43, 28, 0.08);
 
   /* ── 无 blur 回退实色 ── */
-  --mica-solid: #f0f3f7;
+  --mica-solid: #d7e3f0;
   --acrylic-solid: #f5f6f8;
   --card-solid: #ffffff;
   --surface-strong-solid: #fff;
@@ -81,21 +80,21 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
   --content-w: 1180px;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --page-grain-opacity: 0.05;
+  --page-grain-opacity: 0.07;
 }
 
 /* ── 深色令牌 ── */
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --mica-base: #1a1d24;
-    --mica-tint: rgba(32, 32, 32, 0.55);
-    --layer-fill: rgba(255, 255, 255, 0.04);
-    --nav-fill: rgba(255, 255, 255, 0.035);
-    --card-fill: rgba(255, 255, 255, 0.055);
-    --card-fill-hover: rgba(255, 255, 255, 0.09);
+    --mica-base: #0c1018;
+    --mica-tint: rgba(18, 22, 30, 0.28);
+    --nav-fill: rgba(255, 255, 255, 0.03);
+    --card-fill: rgba(255, 255, 255, 0.05);
+    --card-fill-hover: rgba(255, 255, 255, 0.08);
     --card-fill-2: rgba(255, 255, 255, 0.04);
-    --surface-strong: rgba(44, 44, 44, 0.82);
+    --surface-strong: rgba(32, 36, 44, 0.72);
+    --mica-noise: 0.22;
     --control-fill: rgba(255, 255, 255, 0.06);
     --control-fill-hover: rgba(255, 255, 255, 0.09);
     --control-fill-pressed: rgba(255, 255, 255, 0.04);
@@ -165,7 +164,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 极淡色温：模拟 Mica 采样壁纸，只有冷暖，没有花纹 */
+/* 大面积柔光：给 Mica 采样上色，不要细碎花纹 */
 body::before {
   content: '';
   position: fixed;
@@ -173,14 +172,16 @@ body::before {
   z-index: -2;
   pointer-events: none;
   background:
-    radial-gradient(58% 48% at 88% -8%, rgba(0, 95, 184, 0.08), transparent 72%),
-    radial-gradient(46% 38% at 8% 108%, rgba(255, 255, 255, 0.42), transparent 70%);
+    radial-gradient(90% 70% at 108% -12%, rgba(0, 120, 212, 0.55), transparent 58%),
+    radial-gradient(80% 62% at -12% 112%, rgba(118, 86, 186, 0.32), transparent 56%),
+    radial-gradient(46% 38% at 42% 38%, rgba(255, 255, 255, 0.42), transparent 72%);
 }
 @media (prefers-color-scheme: dark) {
   body::before {
     background:
-      radial-gradient(58% 48% at 90% -6%, rgba(96, 205, 255, 0.07), transparent 72%),
-      radial-gradient(42% 36% at 6% 108%, rgba(255, 255, 255, 0.035), transparent 70%);
+      radial-gradient(90% 70% at 110% -10%, rgba(64, 156, 255, 0.38), transparent 58%),
+      radial-gradient(78% 60% at -10% 112%, rgba(120, 80, 200, 0.22), transparent 56%),
+      radial-gradient(40% 32% at 48% 40%, rgba(255, 255, 255, 0.05), transparent 72%);
   }
 }
 
@@ -216,10 +217,23 @@ body::after {
   border-radius: 12px;                    /* 窗口圆角略大于卡片 */
   box-shadow: var(--shadow-window);
 
-  background-color: var(--mica-tint);
-  background-image: linear-gradient(var(--layer-fill), var(--layer-fill));
-  backdrop-filter: blur(48px) saturate(118%);
-  -webkit-backdrop-filter: blur(48px) saturate(118%);
+  isolation: isolate;
+  background: var(--mica-tint);
+  backdrop-filter: blur(60px) saturate(180%);
+  -webkit-backdrop-filter: blur(60px) saturate(180%);
+}
+.app::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: var(--mica-noise);
+  background-image: var(--grain);
+  background-repeat: repeat;
+  background-size: 140px 140px;
+  mix-blend-mode: overlay;
 }
 
 ::selection { background: rgba(0, 95, 184, 0.35); }
