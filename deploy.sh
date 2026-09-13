@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # LeanClash 原生部署（不含容器镜像）。
 #   开发机:  ./deploy.sh --pack
-#   服务器:  sudo ./deploy.sh --install
+#   服务器:  sudo ./deploy.sh --install --file leanclash-native-*.tar.gz
 #            sudo ./deploy.sh --remove
 #            sudo ./deploy.sh --remove --purge
 set -euo pipefail
@@ -17,14 +17,21 @@ OPT_DIR=/opt/leanclash
 DATA_DIR=/var/lib/mihomo
 LOG_DIR=/var/log/mihomo
 
+ACTION=""
+PACK_FILE=""
+PURGE=false
+EXTRACT_DIR=""
+
 usage() {
     cat <<EOF
-Usage: $0 --pack | --install | --remove [--purge]
+Usage: $0 --pack
+       $0 --install --file <pack.tar.gz>
+       $0 --remove [--purge]
 
-  --pack              在开发机打包原生部署所需文件（带时间戳）
-  --install           在服务器安装二进制、systemd 单元、用户与目录
-  --remove            停止服务并移除程序文件（保留配置与数据）
-  --remove --purge    同时删除 /opt/leanclash、/etc/mihomo、数据目录
+  --pack                         在开发机打包原生部署所需文件（带时间戳）
+  --install --file <pack.tar.gz> 从打包文件安装二进制、systemd 单元、用户与目录
+  --remove                       停止服务并移除程序文件（保留配置与数据）
+  --remove --purge               同时删除 /opt/leanclash、/etc/mihomo、数据目录
 
 Environment:
   BUILD_DIR     打包输出目录（默认 <repo>/build）
@@ -39,9 +46,16 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || die "$1 is required"; }
 
 require_root() {
     if [ "$(id -u)" -ne 0 ]; then
-        die "需要 root 权限（请使用 sudo $0 ${1:-}）"
+        die "需要 root 权限（请使用 sudo $0 $*）"
     fi
 }
+
+cleanup() {
+    if [ -n "$EXTRACT_DIR" ] && [ -d "$EXTRACT_DIR" ]; then
+        rm -rf "$EXTRACT_DIR"
+    fi
+}
+trap cleanup EXIT
 
 arch_name() {
     local arch="${TARGET_ARCH:-$(uname -m)}"
@@ -52,21 +66,40 @@ arch_name() {
     esac
 }
 
-# 打包目录布局，或仓库源码布局。
-resolve_payload() {
-    if [ -x "$SCRIPT_DIR/bin/leanclash" ]; then
-        PAYLOAD_BIN="$SCRIPT_DIR/bin/leanclash"
-        PAYLOAD_UNIT_LC="$SCRIPT_DIR/systemd/leanclash.service"
-        PAYLOAD_UNIT_MH="$SCRIPT_DIR/systemd/mihomo@.service"
-        PAYLOAD_GENERAL="$SCRIPT_DIR/etc-mihomo/config_general.yaml"
-        PAYLOAD_MIHOMO="$SCRIPT_DIR/bin/mihomo"
-        return
+load_payload_from_root() {
+    local root="$1"
+    PAYLOAD_BIN="$root/bin/leanclash"
+    PAYLOAD_UNIT_LC="$root/systemd/leanclash.service"
+    PAYLOAD_UNIT_MH="$root/systemd/mihomo@.service"
+    PAYLOAD_GENERAL="$root/etc-mihomo/config_general.yaml"
+    PAYLOAD_MIHOMO="$root/bin/mihomo"
+}
+
+unpack_file() {
+    local archive="$1"
+    [ -n "$archive" ] || die "--install 需要 --file <pack.tar.gz>"
+    [ -f "$archive" ] || die "找不到安装包: $archive"
+    case "$archive" in
+        *.tar.gz|*.tgz) ;;
+        *) die "安装包必须是 .tar.gz: $archive" ;;
+    esac
+
+    need_cmd tar
+    EXTRACT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/leanclash-install.XXXXXX")"
+    log "解压 $archive"
+    tar -xzf "$archive" -C "$EXTRACT_DIR"
+
+    local dirs count root
+    dirs="$(find "$EXTRACT_DIR" -mindepth 1 -maxdepth 1 -type d)"
+    count="$(printf '%s\n' "$dirs" | sed '/^$/d' | wc -l)"
+    if [ "$count" -eq 1 ]; then
+        root="$dirs"
+    elif [ -x "$EXTRACT_DIR/bin/leanclash" ]; then
+        root="$EXTRACT_DIR"
+    else
+        die "安装包结构无效: $archive"
     fi
-    PAYLOAD_BIN="$SCRIPT_DIR/build/leanclash"
-    PAYLOAD_UNIT_LC="$SCRIPT_DIR/deploy/leanclash.service"
-    PAYLOAD_UNIT_MH="$SCRIPT_DIR/deploy/mihomo@.service"
-    PAYLOAD_GENERAL="$SCRIPT_DIR/deploy/etc-mihomo/config_general.yaml"
-    PAYLOAD_MIHOMO="$SCRIPT_DIR/build/mihomo"
+    load_payload_from_root "$root"
 }
 
 # ─── pack ───────────────────────────────────────────────────
@@ -132,14 +165,15 @@ ensure_user() {
 }
 
 do_install() {
-    require_root --install
+    [ -f "$PACK_FILE" ] || die "找不到安装包: $PACK_FILE"
+    require_root "--install --file <pack.tar.gz>"
     need_cmd systemctl
-    resolve_payload
+    unpack_file "$PACK_FILE"
 
-    [ -x "$PAYLOAD_BIN" ] || die "找不到 leanclash 二进制（请先在开发机 ./deploy.sh --pack 并解压）"
-    [ -f "$PAYLOAD_UNIT_LC" ] || die "找不到 $PAYLOAD_UNIT_LC"
-    [ -f "$PAYLOAD_UNIT_MH" ] || die "找不到 $PAYLOAD_UNIT_MH"
-    [ -f "$PAYLOAD_GENERAL" ] || die "找不到 $PAYLOAD_GENERAL"
+    [ -x "$PAYLOAD_BIN" ] || die "安装包缺少 bin/leanclash"
+    [ -f "$PAYLOAD_UNIT_LC" ] || die "安装包缺少 systemd/leanclash.service"
+    [ -f "$PAYLOAD_UNIT_MH" ] || die "安装包缺少 systemd/mihomo@.service"
+    [ -f "$PAYLOAD_GENERAL" ] || die "安装包缺少 etc-mihomo/config_general.yaml"
 
     ensure_user
 
@@ -192,15 +226,6 @@ do_remove() {
     require_root --remove
     need_cmd systemctl
 
-    local purge=false
-    for arg in "$@"; do
-        case "$arg" in
-            --purge) purge=true ;;
-            --remove) ;;
-            *) die "未知参数: $arg" ;;
-        esac
-    done
-
     log "停止 LeanClash 与 mihomo@ 实例"
     stop_units
 
@@ -210,7 +235,7 @@ do_remove() {
     systemctl daemon-reload
     log "已移除 $BIN_DST 与 systemd 单元（未删除 mihomo 内核）"
 
-    if [ "$purge" = true ]; then
+    if [ "$PURGE" = true ]; then
         rm -rf "$OPT_DIR" "$DATA_DIR" "$LOG_DIR"
         rm -f "$ETC_MIHOMO"/config_general.yaml "$ETC_MIHOMO"/config_*.yaml
         rmdir "$ETC_MIHOMO" 2>/dev/null || true
@@ -223,11 +248,51 @@ do_remove() {
 
 # ─── dispatch ───────────────────────────────────────────────
 
-case "${1:-}" in
-    --pack) do_pack ;;
-    --install) do_install ;;
-    --remove) shift; do_remove "$@" ;;
-    -h|--help|help) usage ;;
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --pack)
+            ACTION=pack
+            shift
+            ;;
+        --install)
+            ACTION=install
+            shift
+            ;;
+        --remove)
+            ACTION=remove
+            shift
+            ;;
+        --purge)
+            PURGE=true
+            shift
+            ;;
+        --file)
+            [ $# -ge 2 ] || die "--file 需要一个 tar.gz 路径"
+            PACK_FILE="$2"
+            shift 2
+            ;;
+        --file=*)
+            PACK_FILE="${1#--file=}"
+            shift
+            ;;
+        -h|--help|help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            die "未知参数: $1"
+            ;;
+    esac
+done
+
+case "$ACTION" in
+    pack) do_pack ;;
+    install)
+        [ -n "$PACK_FILE" ] || die "--install 需要 --file <pack.tar.gz>"
+        do_install
+        ;;
+    remove) do_remove ;;
     "") usage >&2; exit 2 ;;
-    *) usage >&2; die "未知参数: $1" ;;
+    *) die "未知操作: $ACTION" ;;
 esac

@@ -90,11 +90,10 @@ systemd/D-Bus backend。两种二进制都由同一个 `build.sh` 生成。
 ./deploy.sh --pack
 # 例如: build/leanclash-native-amd64-20260913_083415.tar.gz
 
-# 上传到服务器后解压安装
-scp build/leanclash-native-*.tar.gz 服务器:/tmp/
+# 上传安装包和脚本到服务器后直接安装（不必先解压）
+scp deploy.sh build/leanclash-native-*.tar.gz 服务器:/tmp/
 ssh 服务器
-cd /tmp && tar xzf leanclash-native-*.tar.gz && cd leanclash-native-*
-sudo ./deploy.sh --install
+sudo /tmp/deploy.sh --install --file /tmp/leanclash-native-amd64-20260913_083415.tar.gz
 
 # 卸载程序（保留配置与数据）
 sudo ./deploy.sh --remove
